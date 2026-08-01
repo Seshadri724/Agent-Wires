@@ -1,0 +1,28 @@
+{
+  "name": "canarywatch",
+  "version": "0.1.0",
+  "description": "Tripwires for AI agents — deterministic runtime guardrails for autonomous agent filesystem access.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "canarywatch": "src/cli/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "scripts": {
+    "dev": "node src/cli/cli.ts",
+    "build": "npm run build:plugin",
+    "cli": "node src/cli/cli.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "selftest": "node src/cli/cli.ts test",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "bench": "node scripts/bench-hook-latency.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.6.0"
+  }
+}

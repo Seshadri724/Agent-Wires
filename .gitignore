@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+
+# Local canarywatch state if CANARYWATCH_HOME ever points inside the repo
+/.canarywatch/
+
+docs/

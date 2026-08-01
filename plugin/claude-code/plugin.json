@@ -1,0 +1,7 @@
+{
+  "name": "canarywatch",
+  "description": "Tripwires for AI agents — deterministic honeypot files and scope/mass-modification detection with a pause-not-kill response.",
+  "version": "0.1.0",
+  "author": "canarywatch",
+  "hooks": "./hooks/hooks.json"
+}
