@@ -4,6 +4,12 @@
   "description": "Tripwires for AI agents — deterministic runtime guardrails for autonomous agent filesystem access.",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Seshadri724/Agent-Wires.git"
+  },
+  "bugs": "https://github.com/Seshadri724/Agent-Wires/issues",
   "bin": {
     "canarywatch": "src/cli/cli.ts"
   },

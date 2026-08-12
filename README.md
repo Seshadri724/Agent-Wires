@@ -33,6 +33,35 @@ The key insight from the ransomware-era version of this idea: **agents are inter
 | [Threat Model](docs/THREAT-MODEL.md) | Detection taxonomy: what fires, what doesn't, evasion analysis |
 | [Resources](docs/RESOURCES.md) | APIs, OS internals docs, prior art, and libraries to build on |
 
+## Install (pilot / beta)
+
+Not published to npm yet. Run from source:
+
+```bash
+git clone https://github.com/Seshadri724/Agent-Wires.git
+cd Agent-Wires
+npm install
+npm link          # exposes the `canarywatch` command globally
+canarywatch init  # seed canaries in the current workspace + print hook setup
+canarywatch install-hook
+```
+
+Requires Node >= 22.6.0. Everything canarywatch does is local: it writes decoy
+files into your workspace, appends to a local event log, and adds one entry to
+`~/.claude.json`. Nothing is sent over the network. `canarywatch uninstall-hook`
+and deleting the `.canarywatch/` directory fully remove it.
+
+## Feedback
+
+Found a false positive, a crash, or something confusing? Open an issue:
+https://github.com/Seshadri724/Agent-Wires/issues
+
 ## Status
 
-Pre-code. Documentation-first. Phase 0 (validation spike) is defined in the [roadmap](docs/ROADMAP.md).
+Phase 0 (validation spike) is complete — see [findings](docs/phase0-findings.md).
+Currently in Phase 1 pilot deployment. Roadmap for later phases is in
+[docs/ROADMAP.md](docs/ROADMAP.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
