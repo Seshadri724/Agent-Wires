@@ -19,18 +19,8 @@ function getHookCommand(scriptPath: string): string {
 export function isCanarywatchHook(hookObj: any): boolean {
   if (!hookObj) return false;
   if (hookObj.id === CANARYWATCH_HOOK_MARKER || hookObj.owner === CANARYWATCH_HOOK_MARKER) return true;
-  const cmd = typeof hookObj === "string" ? hookObj : hookObj.command || "";
   const subHooks = Array.isArray(hookObj.hooks) ? hookObj.hooks : [];
-  if (cmd.includes("canarywatch") || cmd.includes(CANARYWATCH_HOOK_MARKER)) return true;
-  return subHooks.some((sh: any) => {
-    const shCmd = sh?.command || "";
-    return (
-      sh?.id === CANARYWATCH_HOOK_MARKER ||
-      sh?.owner === CANARYWATCH_HOOK_MARKER ||
-      shCmd.includes("canarywatch") ||
-      shCmd.includes(CANARYWATCH_HOOK_MARKER)
-    );
-  });
+  return subHooks.some((sh: any) => sh?.id === CANARYWATCH_HOOK_MARKER || sh?.owner === CANARYWATCH_HOOK_MARKER);
 }
 
 export function runInstallHook(args: string[]): void {
