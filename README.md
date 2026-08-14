@@ -46,8 +46,11 @@ canarywatch init  # seed canaries in the current workspace + print hook setup
 canarywatch install-hook
 ```
 
-Requires Node >= 22.6.0. Everything canarywatch does is local: it writes decoy
-files into your workspace, appends to a local event log, and adds one entry to
+Requires Node >= 22.18.0. The CLI entrypoint is TypeScript, and 22.18 is the
+first release that strips types without an explicit flag.
+
+Everything canarywatch does is local: it writes decoy files into your
+workspace, appends to a local event log, and adds one entry to
 `~/.claude.json`. Nothing is sent over the network. `canarywatch uninstall-hook`
 and deleting the `.canarywatch/` directory fully remove it.
 

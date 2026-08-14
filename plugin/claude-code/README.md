@@ -20,8 +20,8 @@ file for the plugin to work once distributed. If you change anything under
 `src/hook/`, `src/core/`, or `src/seeder/` (the hook's transitive
 dependencies), **you must run `npm run build:plugin` and commit the
 resulting `bin/hook.cjs` before the plugin will reflect the change.**
-There's no CI check for staleness yet — that's worth adding before this
-goes in a plugin marketplace/registry.
+CI rebuilds the bundle and fails on any diff, so a stale commit is caught
+rather than shipped (`.github/workflows/ci.yml`).
 
 Output format is `.cjs` (not `.js`) deliberately: a bundled `.js` file's
 module format (ESM vs CommonJS) depends on the nearest `package.json` once

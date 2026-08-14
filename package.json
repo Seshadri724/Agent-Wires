@@ -14,7 +14,7 @@
     "canarywatch": "src/cli/cli.ts"
   },
   "engines": {
-    "node": ">=22.6.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "node src/cli/cli.ts",
@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "selftest": "node src/cli/cli.ts test",
     "build:plugin": "node scripts/build-plugin.mjs",
+    "build:beta": "node scripts/build-plugin.mjs && node scripts/build-beta.mjs",
     "bench": "node scripts/bench-hook-latency.mjs"
   },
   "devDependencies": {

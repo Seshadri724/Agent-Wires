@@ -13,7 +13,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.18"
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The plugin bundle is committed, but Claude Code has no install-time
+      # build step — so a stale bin/hook.cjs means testers silently run
+      # different logic than this repo shows. Rebuild and fail on any drift.
+      - name: Plugin bundle is up to date
+        run: |
+          npm run build:plugin
+          git diff --exit-code -- plugin/claude-code/bin/hook.cjs
