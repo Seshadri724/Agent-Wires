@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { runInstallHook, runUninstallHook } from "../src/cli/commands/installHook.ts";
+import { runInstallHook, runUninstallHook, resolveHookScript } from "../src/cli/commands/installHook.ts";
+
+// A registered hook path that doesn't exist means canarywatch looks installed
+// while silently protecting nothing — the worst failure mode this tool has.
+test("the registered hook command points at a file that actually exists", () => {
+  const resolved = resolveHookScript();
+  assert.ok(resolved, "hook script should resolve");
+  assert.ok(fs.existsSync(resolved!), `resolved hook script does not exist: ${resolved}`);
+});
 
 test("install-hook and uninstall-hook integration", () => {
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-test-install-"));

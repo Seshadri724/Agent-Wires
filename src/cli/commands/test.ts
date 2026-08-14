@@ -7,12 +7,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { seed } from "../../seeder/seeder.ts";
 import { DEFAULT_POLICY } from "../../core/types.ts";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const HOOK_PATH = path.join(__dirname, "..", "..", "hook", "hook.ts");
+import { resolveHookScript } from "./installHook.ts";
 
 interface Check {
   name: string;
@@ -20,8 +17,12 @@ interface Check {
   detail: string;
 }
 
-function callHook(home: string, input: Record<string, unknown>): { permissionDecision: string; reason: string } {
-  const result = spawnSync(process.execPath, [HOOK_PATH], {
+function callHook(
+  home: string,
+  hookPath: string,
+  input: Record<string, unknown>,
+): { permissionDecision: string; reason: string } {
+  const result = spawnSync(process.execPath, [hookPath], {
     input: JSON.stringify(input),
     env: { ...process.env, CANARYWATCH_HOME: home },
     encoding: "utf8",
@@ -37,6 +38,14 @@ function callHook(home: string, input: Record<string, unknown>): { permissionDec
 }
 
 export async function runTest(): Promise<void> {
+  const hookPath = resolveHookScript();
+  if (!hookPath) {
+    console.error("canarywatch test: could not locate the hook script.");
+    console.error("  Expected bin/hook.cjs next to the CLI, or a source checkout.");
+    process.exitCode = 1;
+    return;
+  }
+
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-selftest-"));
   const home = path.join(tmpRoot, "home");
   const workspace = path.join(tmpRoot, "workspace");
@@ -65,7 +74,7 @@ export async function runTest(): Promise<void> {
     const canaryPath = seedResult.seeded[0].path;
 
     // 1. Targeted read of a canary must be denied.
-    const canaryRead = callHook(home, {
+    const canaryRead = callHook(home, hookPath, {
       session_id: "selftest-1",
       cwd: workspace,
       hook_event_name: "PreToolUse",
@@ -81,7 +90,7 @@ export async function runTest(): Promise<void> {
     // 2. A broad Glob that merely lists (not reads) the canary must NOT be
     //    denied — this is the load-bearing list-vs-read distinction from
     //    docs/THREAT-MODEL.md §2 that keeps baseline false positives at zero.
-    const sweep = callHook(home, {
+    const sweep = callHook(home, hookPath, {
       session_id: "selftest-2",
       cwd: workspace,
       hook_event_name: "PreToolUse",
@@ -97,7 +106,7 @@ export async function runTest(): Promise<void> {
     // 3. A normal read of an unrelated file must be allowed (baseline).
     const normalFile = path.join(workspace, "index.js");
     fs.writeFileSync(normalFile, "console.log('hi');\n");
-    const normalRead = callHook(home, {
+    const normalRead = callHook(home, hookPath, {
       session_id: "selftest-3",
       cwd: workspace,
       hook_event_name: "PreToolUse",
@@ -113,7 +122,7 @@ export async function runTest(): Promise<void> {
     // 4. Sensitive-path read (real .env, not a decoy) must be denied.
     const envPath = path.join(workspace, ".env");
     fs.writeFileSync(envPath, "SECRET=1\n");
-    const envRead = callHook(home, {
+    const envRead = callHook(home, hookPath, {
       session_id: "selftest-4",
       cwd: workspace,
       hook_event_name: "PreToolUse",
@@ -128,7 +137,7 @@ export async function runTest(): Promise<void> {
 
     // 5. Once a session is paused, subsequent calls in that session are
     //    denied too (session lock), until `canarywatch resume`.
-    const followUp = callHook(home, {
+    const followUp = callHook(home, hookPath, {
       session_id: "selftest-1",
       cwd: workspace,
       hook_event_name: "PreToolUse",
@@ -145,7 +154,7 @@ export async function runTest(): Promise<void> {
     //    (relaxed threshold=5 for this self-test, see policy override above).
     let lastMassMod = { permissionDecision: "allow", reason: "" };
     for (let i = 0; i < 10; i++) {
-      lastMassMod = callHook(home, {
+      lastMassMod = callHook(home, hookPath, {
         session_id: "selftest-6",
         cwd: workspace,
         hook_event_name: "PreToolUse",
