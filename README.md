@@ -23,15 +23,19 @@ The key insight from the ransomware-era version of this idea: **agents are inter
 2. **Daemon mode (ships second):** a standalone filesystem sensor (Windows USN Journal + ETW, Linux fanotify/eBPF, macOS Endpoint Security) that works with *any* agent, any runtime, no harness cooperation required.
 3. **Classic mode (free, forever):** the original ransomware tripwire — canary files + mass-modification detection. Free tier, lead generator, goodwill.
 
-## Documentation
+## What it detects
 
-| Doc | What's in it |
-|---|---|
-| [PRD](docs/PRD.md) | Problem, users, requirements, success metrics, non-goals |
-| [Roadmap](docs/ROADMAP.md) | Phases 0–4 with build instructions, checkpoints, and exit criteria |
-| [Architecture](docs/ARCHITECTURE.md) | System design, component specs, data flows, platform sensor designs |
-| [Threat Model](docs/THREAT-MODEL.md) | Detection taxonomy: what fires, what doesn't, evasion analysis |
-| [Resources](docs/RESOURCES.md) | APIs, OS internals docs, prior art, and libraries to build on |
+| ID | Detector | Fires on |
+|---|---|---|
+| D1 | Canary | A targeted read, write, or delete of a seeded decoy file. Merely *listing* one (Glob/Grep) is logged, not blocked. |
+| D2 | Sensitive path | Access to well-known secret locations (`.env`, `~/.ssh/id_rsa`, `~/.aws/credentials`) even with an empty manifest. |
+| D3 | Scope | Writes outside the workspace's declared scope roots. Warns once, then escalates. |
+| D4 | Mass modification | More writes than the threshold inside the time window. Allowlisted churn dirs (`node_modules`) don't count. |
+| D5 | Dangerous shell | Obfuscated or tunnelling shell commands (`base64 -d \| bash`, `ngrok`). |
+| D6 | MCP authorization | Calls to MCP servers that aren't approved. |
+| D7 | Exfiltration | Outbound transfer of local files (`curl -F file=@.env`). |
+
+Known gap: in-memory network exfiltration over raw sockets is not observed in v1.
 
 ## Install (pilot / beta)
 
@@ -61,9 +65,11 @@ https://github.com/Seshadri724/Agent-Wires/issues
 
 ## Status
 
-Phase 0 (validation spike) is complete — see [findings](docs/phase0-findings.md).
-Currently in Phase 1 pilot deployment. Roadmap for later phases is in
-[docs/ROADMAP.md](docs/ROADMAP.md).
+Hook mode works and is in pilot: canaries, the seven detectors above, session
+pause/resume, and a hash-chained local event log. Daemon mode (a standalone
+filesystem sensor that works without harness cooperation) is not built yet.
+
+Design docs are kept out of this repo.
 
 ## License
 
