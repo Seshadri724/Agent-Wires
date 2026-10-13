@@ -81,7 +81,7 @@ export function runInstallHook(args: string[]): void {
   const newHookEntry = {
     id: CANARYWATCH_HOOK_MARKER,
     owner: CANARYWATCH_HOOK_MARKER,
-    matcher: "Read|Write|Edit|Bash|Glob|Grep|NotebookEdit",
+    matcher: "Read|Write|Edit|Bash|Glob|Grep|NotebookEdit|mcp__.*",
     hooks: [
       {
         id: CANARYWATCH_HOOK_MARKER,

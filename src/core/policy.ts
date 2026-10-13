@@ -149,12 +149,21 @@ function evaluateDangerousCommand(event: ToolCallEvent, policy: PolicyConfig): C
   return null;
 }
 
+// Claude Code names MCP tools mcp__<server>__<tool>; that name comes from the
+// harness, so it is trusted. The proxy has no such name and sets raw.mcpServer.
+// raw.mcpServer is only a fallback: agent-supplied args must not pick the server.
+function mcpServerOf(event: ToolCallEvent): string | undefined {
+  const m = /^mcp__(.+?)__/.exec(event.tool);
+  if (m) return m[1];
+  const raw = (event.raw ?? {}) as Record<string, unknown>;
+  return typeof raw.mcpServer === "string" ? raw.mcpServer : undefined;
+}
+
 function evaluateToolAuthorization(event: ToolCallEvent, policy: PolicyConfig): ClaimVerdict | null {
   const mcp = policy.mcp;
   if (!mcp) return null;
 
-  const rawObj = (event.raw ?? {}) as Record<string, unknown>;
-  const serverName = typeof rawObj.mcpServer === "string" ? rawObj.mcpServer : undefined;
+  const serverName = mcpServerOf(event);
 
   if (serverName && mcp.blockedServers?.includes(serverName)) {
     return {
@@ -262,8 +271,7 @@ export function evaluate(
     };
   }
 
-  const rawObj = (event.raw ?? {}) as Record<string, unknown>;
-  const mcpServer = typeof rawObj.mcpServer === "string" ? rawObj.mcpServer : undefined;
+  const mcpServer = mcpServerOf(event);
 
   let best: ClaimVerdict | null = worst(
     evaluateTokenReuse(event, canaryTokens),

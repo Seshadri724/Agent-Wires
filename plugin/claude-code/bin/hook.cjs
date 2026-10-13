@@ -362,11 +362,16 @@ function evaluateDangerousCommand(event, policy) {
   }
   return null;
 }
+function mcpServerOf(event) {
+  const m = /^mcp__(.+?)__/.exec(event.tool);
+  if (m) return m[1];
+  const raw = event.raw ?? {};
+  return typeof raw.mcpServer === "string" ? raw.mcpServer : void 0;
+}
 function evaluateToolAuthorization(event, policy) {
   const mcp = policy.mcp;
   if (!mcp) return null;
-  const rawObj = event.raw ?? {};
-  const serverName = typeof rawObj.mcpServer === "string" ? rawObj.mcpServer : void 0;
+  const serverName = mcpServerOf(event);
   if (serverName && mcp.blockedServers?.includes(serverName)) {
     return {
       action: "pause",
@@ -448,8 +453,7 @@ function evaluate(event, policy, manifestPaths, state, canaryTokens = /* @__PURE
       evidence: { sessionId: event.sessionId, tool: event.tool, paths: event.paths.map((p) => p.path), ts: now }
     };
   }
-  const rawObj = event.raw ?? {};
-  const mcpServer = typeof rawObj.mcpServer === "string" ? rawObj.mcpServer : void 0;
+  const mcpServer = mcpServerOf(event);
   let best = worst(
     evaluateTokenReuse(event, canaryTokens),
     worst(

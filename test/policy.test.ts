@@ -264,3 +264,40 @@ describe("session lock", () => {
     assert.equal(decision.action, "lockdown");
   });
 });
+
+describe("D6 MCP authorization via Claude Code tool names", () => {
+  const policy: PolicyConfig = { ...DEFAULT_POLICY, mcp: { allowedServers: ["github"], blockedServers: ["evil"] } };
+
+  test("server is read from the mcp__<server>__<tool> name", () => {
+    const d = evaluate(event({ tool: "mcp__notion__search", raw: { q: "x" } }), policy, new Set(), freshSession());
+    assert.equal(d.action, "pause");
+    assert.equal(d.detector, "D6");
+    assert.equal(d.evidence.mcpServer, "notion");
+  });
+
+  test("an approved server is allowed", () => {
+    const d = evaluate(event({ tool: "mcp__github__get_issue", raw: {} }), policy, new Set(), freshSession());
+    assert.equal(d.action, "allow");
+  });
+
+  test("a blocked server is paused even when it is also not listed", () => {
+    const d = evaluate(event({ tool: "mcp__evil__run", raw: {} }), policy, new Set(), freshSession());
+    assert.equal(d.action, "pause");
+  });
+
+  test("agent-supplied args cannot claim an approved server", () => {
+    const d = evaluate(
+      event({ tool: "mcp__notion__search", raw: { mcpServer: "github" } }),
+      policy,
+      new Set(),
+      freshSession()
+    );
+    assert.equal(d.action, "pause");
+    assert.equal(d.evidence.mcpServer, "notion");
+  });
+
+  test("a server name containing underscores is kept whole", () => {
+    const d = evaluate(event({ tool: "mcp__my_server__do_it", raw: {} }), policy, new Set(), freshSession());
+    assert.equal(d.evidence.mcpServer, "my_server");
+  });
+});

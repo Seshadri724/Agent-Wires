@@ -45,7 +45,7 @@ test("install-hook and uninstall-hook integration", () => {
     JSON.stringify(h).includes("hook.cjs") || JSON.stringify(h).includes("hook.ts")
   );
   assert.ok(canarywatchEntry, "canarywatch hook entry should be present");
-  assert.equal(canarywatchEntry.matcher, "Read|Write|Edit|Bash|Glob|Grep|NotebookEdit");
+  assert.equal(canarywatchEntry.matcher, "Read|Write|Edit|Bash|Glob|Grep|NotebookEdit|mcp__.*");
   assert.equal(canarywatchEntry.hooks[0].type, "command");
 
   // Run uninstall-hook
