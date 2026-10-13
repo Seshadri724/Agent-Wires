@@ -19,8 +19,9 @@ test("install-hook and uninstall-hook integration", () => {
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
 
-  const claudeConfigPath = path.join(tmpHome, ".claude.json");
-  // Seed existing unrelated hook in .claude.json
+  const claudeConfigPath = path.join(tmpHome, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(claudeConfigPath), { recursive: true });
+  // Seed existing unrelated hook in settings.json
   const existingConfig = {
     hooks: {
       PreToolUse: [
@@ -53,6 +54,14 @@ test("install-hook and uninstall-hook integration", () => {
   const uninstalledConfig = JSON.parse(fs.readFileSync(claudeConfigPath, "utf8"));
   assert.equal(uninstalledConfig.hooks.PreToolUse.length, 1);
   assert.equal(uninstalledConfig.hooks.PreToolUse[0].hooks[0].command, "node /path/to/other-tool-hook.js");
+
+  // A legacy entry written to ~/.claude.json by earlier builds is cleaned too.
+  const legacy = path.join(tmpHome, ".claude.json");
+  runInstallHook([]);
+  const entry = JSON.parse(fs.readFileSync(claudeConfigPath, "utf8")).hooks.PreToolUse.at(-1);
+  fs.writeFileSync(legacy, JSON.stringify({ theme: "dark", hooks: { PreToolUse: [entry] } }));
+  runUninstallHook();
+  assert.deepEqual(JSON.parse(fs.readFileSync(legacy, "utf8")), { theme: "dark" });
 
   // Restore env
   if (origHome) {

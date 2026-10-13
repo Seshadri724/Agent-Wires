@@ -8,7 +8,14 @@ const __dirname = path.dirname(__filename);
 
 export const CANARYWATCH_HOOK_MARKER = "canarywatch-managed-hook-v1";
 
+// Claude Code reads hooks from settings.json files, not ~/.claude.json. Writing
+// to the latter registered "successfully" while the hook never ran.
 function getClaudeConfigPath(): string {
+  return path.join(os.homedir(), ".claude", "settings.json");
+}
+
+// Earlier builds registered here by mistake; uninstall still cleans it up.
+function getLegacyConfigPath(): string {
   return path.join(os.homedir(), ".claude.json");
 }
 
@@ -99,40 +106,35 @@ export function runInstallHook(args: string[]): void {
     console.log(`  [Dry Run] Would write updated config to ${claudeConfigPath}:`);
     console.log(JSON.stringify(config, null, 2));
   } else {
+    fs.mkdirSync(path.dirname(claudeConfigPath), { recursive: true });
     fs.writeFileSync(claudeConfigPath, JSON.stringify(config, null, 2));
     console.log(`  Successfully registered canarywatch hook in ${claudeConfigPath}`);
   }
 }
 
 export function runUninstallHook(): void {
-  const claudeConfigPath = getClaudeConfigPath();
-  if (!fs.existsSync(claudeConfigPath)) {
-    console.log("No Claude configuration file found.");
-    return;
-  }
-
-  try {
-    const config = JSON.parse(fs.readFileSync(claudeConfigPath, "utf8"));
-    if (config.hooks) {
-      let removedCount = 0;
+  let removedTotal = 0;
+  for (const configPath of [getClaudeConfigPath(), getLegacyConfigPath()]) {
+    if (!fs.existsSync(configPath)) continue;
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      if (!config.hooks) continue;
+      let removed = 0;
       for (const eventName of Object.keys(config.hooks)) {
-        if (Array.isArray(config.hooks[eventName])) {
-          const before = config.hooks[eventName].length;
-          config.hooks[eventName] = config.hooks[eventName].filter((h: any) => !isCanarywatchHook(h));
-          removedCount += before - config.hooks[eventName].length;
-        }
+        if (!Array.isArray(config.hooks[eventName])) continue;
+        const before = config.hooks[eventName].length;
+        config.hooks[eventName] = config.hooks[eventName].filter((h: any) => !isCanarywatchHook(h));
+        removed += before - config.hooks[eventName].length;
+        if (config.hooks[eventName].length === 0) delete config.hooks[eventName];
       }
-
-      if (removedCount > 0) {
-        fs.writeFileSync(claudeConfigPath, JSON.stringify(config, null, 2));
-        console.log(`Successfully uninstalled ${removedCount} canarywatch hook entry(ies) from ${claudeConfigPath}`);
-      } else {
-        console.log("No canarywatch hooks were registered.");
-      }
-    } else {
-      console.log("No hooks registered in Claude configuration.");
+      if (removed === 0) continue;
+      if (Object.keys(config.hooks).length === 0) delete config.hooks;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      console.log(`Removed ${removed} canarywatch hook entry(ies) from ${configPath}`);
+      removedTotal += removed;
+    } catch (err) {
+      console.error(`Failed to uninstall hook from ${configPath}: ${err}`);
     }
-  } catch (err) {
-    console.error(`Failed to uninstall hook: ${err}`);
   }
+  if (removedTotal === 0) console.log("No canarywatch hooks were registered.");
 }

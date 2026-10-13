@@ -55,7 +55,7 @@ first release that strips types without an explicit flag.
 
 Everything canarywatch does is local: it writes decoy files into your
 workspace, appends to a local event log, and adds one entry to
-`~/.claude.json`. Nothing is sent over the network. `canarywatch uninstall-hook`
+`~/.claude/settings.json`. Nothing is sent over the network. `canarywatch uninstall-hook`
 and deleting the `.canarywatch/` directory fully remove it.
 
 ## Feedback
