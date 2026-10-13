@@ -217,6 +217,41 @@ describe("D4 mass modification detector", () => {
   });
 });
 
+describe("D1 canary token reuse", () => {
+  test("pasting a canary secret into a later Write pauses", () => {
+    const token = "a".repeat(32);
+    const decision = evaluate(
+      event({
+        tool: "Write",
+        paths: [{ path: "/workspace/notes.md", access: "write", confidence: "exact" }],
+        raw: { file_path: "/workspace/notes.md", content: `key=${token}` },
+      }),
+      DEFAULT_POLICY,
+      new Set(),
+      freshSession(),
+      new Set([token])
+    );
+    assert.equal(decision.action, "pause");
+    assert.equal(decision.detector, "D1");
+    assert.doesNotMatch(decision.reason, new RegExp(token));
+  });
+
+  test("unrelated Write contents allow", () => {
+    const decision = evaluate(
+      event({
+        tool: "Write",
+        paths: [{ path: "/workspace/notes.md", access: "write", confidence: "exact" }],
+        raw: { content: "hello" },
+      }),
+      DEFAULT_POLICY,
+      new Set(),
+      freshSession(),
+      new Set(["a".repeat(32)])
+    );
+    assert.equal(decision.action, "allow");
+  });
+});
+
 describe("session lock", () => {
   test("a locked session denies everything regardless of the event", () => {
     const state = freshSession({ locked: true });

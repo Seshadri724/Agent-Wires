@@ -1,5 +1,5 @@
 import { loadPolicy } from "../../core/config.ts";
-import { buildManifestPathSet, loadManifest, loadOrCreateKey } from "../../core/manifest.ts";
+import { buildManifestPathSet, buildManifestTokenSet, loadManifest, loadOrCreateKey } from "../../core/manifest.ts";
 import { evaluate } from "../../core/policy.ts";
 import { loadSession } from "../../core/session.ts";
 import { extractPathClaims } from "../../hook/pathClaims.ts";
@@ -28,6 +28,7 @@ export function runSimulate(args: string[]): void {
   const key = loadOrCreateKey();
   const manifest = loadManifest();
   const manifestPaths = buildManifestPathSet(manifest, key);
+  const canaryTokens = buildManifestTokenSet(manifest, key);
   const policy = loadPolicy();
   const state = loadSession("simulated-session", [process.cwd()]);
 
@@ -42,7 +43,7 @@ export function runSimulate(args: string[]): void {
     ts: Date.now(),
   };
 
-  const decision = evaluate(event, policy, manifestPaths, state);
+  const decision = evaluate(event, policy, manifestPaths, state, canaryTokens);
 
   console.log(`canarywatch Policy Simulation`);
   console.log(`  Tool:       ${toolName}`);

@@ -3,9 +3,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import {
   addManifestEntry,
+  generateToken,
   loadManifest,
   loadOrCreateKey,
   removeManifestEntriesForWorkspace,
@@ -22,7 +22,8 @@ export interface SeedResult {
   skipped: string[]; // paths that already existed as real files — never overwritten
 }
 
-const GITIGNORE_MARKER = "# canarywatch decoys — do not remove (managed by `canarywatch seed`)";
+const GITIGNORE_MARKER = "# local secrets — do not commit";
+const LEGACY_GITIGNORE_MARKER = "# canarywatch decoys — do not remove (managed by `canarywatch seed`)";
 
 export function seed(workspaceRoot: string, density: Density = "standard"): SeedResult {
   const root = canonicalize(workspaceRoot);
@@ -41,14 +42,10 @@ export function seed(workspaceRoot: string, density: Density = "standard"): Seed
       continue;
     }
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    // The token embedded in file contents is independent of the
-    // manifest's own per-entry tokenId (which addManifestEntry assigns) —
-    // both are per-install-unique, this one just needs to be plausible
-    // credential-shaped text.
-    const contentToken = crypto.randomBytes(16).toString("hex");
-    const text = tpl.render(contentToken);
+    const tokenId = generateToken();
+    const text = tpl.render(tokenId);
     fs.writeFileSync(target, text, { mode: 0o600 });
-    const entry = addManifestEntry(manifest, key, target, root, Buffer.from(text));
+    const entry = addManifestEntry(manifest, key, target, root, Buffer.from(text), tokenId);
     seeded.push(entry);
     gitignoreLines.push("/" + tpl.relativePath.replace(/\\/g, "/"));
   }
@@ -89,8 +86,10 @@ function removeGitignoreMarker(root: string): void {
   const gi = path.join(root, ".gitignore");
   if (!fs.existsSync(gi)) return;
   const content = fs.readFileSync(gi, "utf8");
-  const markerIdx = content.indexOf(GITIGNORE_MARKER);
-  if (markerIdx === -1) return;
+  const markerIdx = [GITIGNORE_MARKER, LEGACY_GITIGNORE_MARKER]
+    .map((m) => content.indexOf(m))
+    .find((i) => i !== -1);
+  if (markerIdx === undefined || markerIdx === -1) return;
   const before = content.slice(0, markerIdx);
   fs.writeFileSync(gi, before.replace(/\n+$/, "\n"));
 }

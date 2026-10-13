@@ -11,7 +11,7 @@ Every company letting autonomous agents touch filesystems is one bad prompt inje
 | Property | canarywatch | ML-based anomaly detection | Prompt-level guardrails |
 |---|---|---|---|
 | False-positive behavior | Deterministic — a canary touch is always a violation | Probabilistic, tunable, noisy | Model-dependent, bypassable |
-| Explainability | "Agent read `~/.aws/credentials.decoy` at 14:02" | Feature-weight soup | Opaque |
+| Explainability | "Agent read `.aws/credentials` bait at 14:02" | Feature-weight soup | Opaque |
 | Response | Pause session, human review | Kill process (dangerous) | Refuse (already too late if injected) |
 | Deployment | A hook + a folder of decoys | Endpoint agent + training period | Per-prompt integration |
 
@@ -27,7 +27,7 @@ The key insight from the ransomware-era version of this idea: **agents are inter
 
 | ID | Detector | Fires on |
 |---|---|---|
-| D1 | Canary | A targeted read, write, or delete of a seeded decoy file. Merely *listing* one (Glob/Grep) is logged, not blocked. |
+| D1 | Canary | Targeted read/write/delete of a seeded honey-credential, **or** reuse of its unique secret in a later tool call (Write, Bash, MCP). Listing (Glob/Grep) is logged, not blocked. Files do not label themselves as bait. |
 | D2 | Sensitive path | Access to well-known secret locations (`.env`, `~/.ssh/id_rsa`, `~/.aws/credentials`) even with an empty manifest. |
 | D3 | Scope | Writes outside the workspace's declared scope roots. Warns once, then escalates. |
 | D4 | Mass modification | More writes than the threshold inside the time window. Allowlisted churn dirs (`node_modules`) don't count. |
@@ -46,7 +46,7 @@ git clone https://github.com/Seshadri724/Agent-Wires.git
 cd Agent-Wires
 npm install
 npm link          # exposes the `canarywatch` command globally
-canarywatch init  # seed canaries in the current workspace + print hook setup
+canarywatch init  # seed unlabeled honey-credentials + install the hook
 canarywatch install-hook
 ```
 
@@ -65,9 +65,12 @@ https://github.com/Seshadri724/Agent-Wires/issues
 
 ## Status
 
-Hook mode works and is in pilot: canaries, the seven detectors above, session
-pause/resume, and a hash-chained local event log. Daemon mode (a standalone
-filesystem sensor that works without harness cooperation) is not built yet.
+Hook mode works: unlabeled honey-credentials, unique tokens (file contents
+match the manifest), token-reuse detection, session pause/resume, and a
+hash-chained local event log. Daemon mode is not built yet.
+
+If you seeded before unlabeled bait landed, run `canarywatch unseed` then
+`canarywatch seed` so old self-labeled files are replaced.
 
 Design docs are kept out of this repo.
 

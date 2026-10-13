@@ -150,6 +150,22 @@ export async function runTest(): Promise<void> {
       detail: `got ${followUp.permissionDecision}: ${followUp.reason}`,
     });
 
+    const tokenWrite = callHook(home, hookPath, {
+      session_id: "selftest-token",
+      cwd: workspace,
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: {
+        file_path: path.join(workspace, "notes.md"),
+        content: `copied ${seedResult.seeded[0].tokenId}`,
+      },
+    });
+    checks.push({
+      name: "D1 canary token reuse in Write is denied",
+      pass: tokenWrite.permissionDecision === "deny",
+      detail: `got ${tokenWrite.permissionDecision}: ${tokenWrite.reason}`,
+    });
+
     // 6. Mass modification: many writes fast in one session trips D4
     //    (relaxed threshold=5 for this self-test, see policy override above).
     let lastMassMod = { permissionDecision: "allow", reason: "" };

@@ -8,7 +8,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +25,7 @@ jobs:
       # build step — so a stale bin/hook.cjs means testers silently run
       # different logic than this repo shows. Rebuild and fail on any drift.
       - name: Plugin bundle is up to date
+        if: matrix.os == 'ubuntu-latest' # drift check on one OS; CRLF checkouts would false-positive on Windows
         run: |
           npm run build:plugin
           git diff --exit-code -- plugin/claude-code/bin/hook.cjs

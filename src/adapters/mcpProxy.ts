@@ -6,7 +6,7 @@
 import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { loadPolicy } from "../core/config.ts";
-import { buildManifestPathSet, loadManifest, loadOrCreateKey } from "../core/manifest.ts";
+import { buildManifestPathSet, buildManifestTokenSet, loadManifest, loadOrCreateKey } from "../core/manifest.ts";
 import { evaluate } from "../core/policy.ts";
 import { acquireLock, loadSession, saveSession } from "../core/session.ts";
 import { getWorkspaceScope } from "../core/scope.ts";
@@ -44,6 +44,7 @@ export function startMcpProxy(targetCommand: string, targetArgs: string[], optio
   const key = loadOrCreateKey();
   const manifest = loadManifest();
   const manifestPaths = buildManifestPathSet(manifest, key);
+  const canaryTokens = buildManifestTokenSet(manifest, key);
   const policy = loadPolicy();
   const scopeRoots = getWorkspaceScope(cwd);
 
@@ -77,7 +78,7 @@ export function startMcpProxy(targetCommand: string, targetArgs: string[], optio
       let decision: ReturnType<typeof evaluate>;
       try {
         const sessionState = loadSession(sessionId, scopeRoots);
-        decision = evaluate(event, policy, manifestPaths, sessionState);
+        decision = evaluate(event, policy, manifestPaths, sessionState, canaryTokens);
 
         if (decision.action === "pause" || decision.action === "lockdown") {
           sessionState.locked = true;

@@ -12,7 +12,7 @@
 // so a bug in canarywatch never becomes "the agent can't do anything."
 
 import { loadPolicy } from "../core/config.ts";
-import { buildManifestPathSet, loadManifest, loadOrCreateKey } from "../core/manifest.ts";
+import { buildManifestPathSet, buildManifestTokenSet, loadManifest, loadOrCreateKey } from "../core/manifest.ts";
 import { evaluate } from "../core/policy.ts";
 import { acquireLock, loadSession, saveSession } from "../core/session.ts";
 import { getWorkspaceScope } from "../core/scope.ts";
@@ -78,10 +78,12 @@ async function main(): Promise<void> {
   }
 
   let manifestPaths: Set<string>;
+  let canaryTokens: Set<string>;
   try {
     const key = loadOrCreateKey();
     const manifest = loadManifest();
     manifestPaths = buildManifestPathSet(manifest, key);
+    canaryTokens = buildManifestTokenSet(manifest, key);
   } catch (err) {
     // Cannot verify canaries -> fail CLOSED. This is the one case where
     // "allowing by default" is worse than a false alarm.
@@ -100,6 +102,7 @@ async function main(): Promise<void> {
       tool: input.tool_name,
       paths,
       phase: input.hook_event_name === "PreToolUse" ? "pre" : "post",
+      raw: input.tool_input,
       ts: Date.now(),
     };
 
@@ -109,7 +112,7 @@ async function main(): Promise<void> {
       const scopeRoots = getWorkspaceScope(input.cwd);
       const state = loadSession(input.session_id, scopeRoots);
 
-      decision = evaluate(event, policy, manifestPaths, state);
+      decision = evaluate(event, policy, manifestPaths, state, canaryTokens);
 
       if (decision.action === "pause" || decision.action === "lockdown") {
         state.locked = true;

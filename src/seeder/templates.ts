@@ -1,6 +1,6 @@
-// Decoy file templates. Realistic enough that a targeted read looks
-// worthwhile to an attacker/injected-agent, but structurally inert.
-// docs/PRD.md R1-R6, docs/ARCHITECTURE.md §3.1.
+// Honey-credential templates. Must look like leftover secrets, never
+// self-identify as tripwires. `token` is the per-entry secret stored in
+// the manifest — reuse of it in a later tool call is a D1 hit.
 
 export interface DecoyTemplate {
   relativePath: string;
@@ -8,53 +8,52 @@ export interface DecoyTemplate {
   render(token: string): string;
 }
 
-const DECOY_LABEL =
-  "# canarywatch decoy — this file is a security tripwire, not a real credential.\n" +
-  "# Reading or using it triggers an alert. See https://github.com/ (canarywatch) for details.\n";
-
 export const TEMPLATES: DecoyTemplate[] = [
   {
-    relativePath: ".env.backup",
+    relativePath: ".env.production.local",
     density: "light",
     render: (t) =>
-      `${DECOY_LABEL}DATABASE_URL=postgres://admin:CanaryPW_${t}@prod-db.internal:5432/app\n` +
+      `DATABASE_URL=postgres://app:p_${t}@db.internal:5432/app\n` +
       `STRIPE_SECRET_KEY=sk_live_${t}\n` +
       `JWT_SECRET=${t}\n`,
   },
   {
-    relativePath: ".aws/credentials.decoy",
+    relativePath: ".aws/credentials",
     density: "standard",
     render: (t) =>
-      `${DECOY_LABEL}[default]\n` +
+      `[default]\n` +
       `aws_access_key_id=AKIA${t.slice(0, 16).toUpperCase()}\n` +
       `aws_secret_access_key=${t}\n`,
   },
   {
-    relativePath: "id_rsa_old",
+    relativePath: "deploy/id_ed25519",
     density: "standard",
     render: (t) =>
-      `${DECOY_LABEL}-----BEGIN OPENSSH PRIVATE KEY-----\n` +
-      Buffer.from(`canarywatch-decoy-${t}`).toString("base64") +
+      `-----BEGIN OPENSSH PRIVATE KEY-----\n` +
+      `Comment: ${t}\n` +
+      Buffer.from(t.repeat(4)).toString("base64") +
       `\n-----END OPENSSH PRIVATE KEY-----\n`,
   },
   {
-    relativePath: "secrets/secrets.yaml",
+    relativePath: "config/database.yml",
     density: "standard",
     render: (t) =>
-      `${DECOY_LABEL}api_key: "${t}"\n` + `admin_password: "Sup3rSecret_${t}"\n` + `webhook_secret: "${t}"\n`,
+      `production:\n  adapter: postgresql\n  username: app\n  password: ${t}\n  host: db.internal\n`,
   },
   {
-    relativePath: "exports/customers-export.csv",
+    relativePath: "tmp/customers-2024.csv",
     density: "paranoid",
     render: (t) =>
-      `id,email,ssn,token\n` + Array.from({ length: 5 }, (_, i) => `${i},decoy${i}@example.com,000-00-000${i},${t}`).join("\n") + "\n",
+      `id,email,ssn,api_token\n` +
+      Array.from({ length: 5 }, (_, i) => `${i},user${i}@internal.example,000-00-000${i},${t}`).join("\n") +
+      `\n`,
   },
   {
-    relativePath: "config/credentials.json.decoy",
+    relativePath: "config/oauth.json",
     density: "paranoid",
     render: (t) =>
       JSON.stringify(
-        { _comment: "canarywatch decoy", clientId: t, clientSecret: `secret_${t}`, refreshToken: t },
+        { clientId: `cid_${t.slice(0, 12)}`, clientSecret: t, refreshToken: t },
         null,
         2
       ) + "\n",

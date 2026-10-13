@@ -191,6 +191,22 @@ function evaluateToolAuthorization(event: ToolCallEvent, policy: PolicyConfig): 
   return null;
 }
 
+function evaluateTokenReuse(event: ToolCallEvent, canaryTokens: Set<string>): ClaimVerdict | null {
+  if (canaryTokens.size === 0) return null;
+  const haystack = JSON.stringify(event.raw ?? "");
+  if (!haystack) return null;
+  for (const token of canaryTokens) {
+    if (haystack.includes(token)) {
+      return {
+        action: "pause",
+        detector: "D1",
+        reason: "Canary secret appeared in a later tool call. The bait was read or copied — this is not a legitimate task.",
+      };
+    }
+  }
+  return null;
+}
+
 function evaluateExfiltration(event: ToolCallEvent, policy: PolicyConfig, manifestPaths: Set<string>): ClaimVerdict | null {
   if (!isShellTool(event.tool)) return null;
   const rawObj = (event.raw ?? {}) as Record<string, unknown>;
@@ -232,7 +248,8 @@ export function evaluate(
   event: ToolCallEvent,
   policy: PolicyConfig,
   manifestPaths: Set<string>,
-  state: SessionState
+  state: SessionState,
+  canaryTokens: Set<string> = new Set()
 ): Decision {
   const now = event.ts;
 
@@ -249,8 +266,11 @@ export function evaluate(
   const mcpServer = typeof rawObj.mcpServer === "string" ? rawObj.mcpServer : undefined;
 
   let best: ClaimVerdict | null = worst(
-    evaluateDangerousCommand(event, policy),
-    worst(evaluateToolAuthorization(event, policy), evaluateExfiltration(event, policy, manifestPaths))
+    evaluateTokenReuse(event, canaryTokens),
+    worst(
+      evaluateDangerousCommand(event, policy),
+      worst(evaluateToolAuthorization(event, policy), evaluateExfiltration(event, policy, manifestPaths))
+    )
   );
 
   for (const claim of event.paths) {

@@ -59,9 +59,9 @@ export function addManifestEntry(
   key: Buffer,
   filePath: string,
   workspace: string,
-  contents: Buffer
+  contents: Buffer,
+  tokenId: string = generateToken()
 ): ManifestEntry {
-  const tokenId = generateToken();
   const sha256 = crypto.createHash("sha256").update(contents).digest("hex");
   const base = {
     path: canonicalize(filePath),
@@ -93,6 +93,16 @@ export function buildManifestPathSet(manifest: Manifest, key: Buffer): Set<strin
       continue;
     }
     set.add(entry.path);
+  }
+  return set;
+}
+
+/** Verified honey-tokens embedded in canary files. Used to catch reuse in later tool calls. */
+export function buildManifestTokenSet(manifest: Manifest, key: Buffer): Set<string> {
+  const set = new Set<string>();
+  for (const entry of manifest.entries) {
+    if (!verifyEntry(key, entry)) continue;
+    if (entry.tokenId.length >= 16) set.add(entry.tokenId);
   }
   return set;
 }

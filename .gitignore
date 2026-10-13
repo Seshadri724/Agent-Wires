@@ -8,3 +8,5 @@ Thumbs.db
 /.canarywatch/
 
 docs/
+# Local Claude Code preview config
+/.claude/

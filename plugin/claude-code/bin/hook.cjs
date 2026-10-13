@@ -243,6 +243,14 @@ function buildManifestPathSet(manifest, key) {
   }
   return set;
 }
+function buildManifestTokenSet(manifest, key) {
+  const set = /* @__PURE__ */ new Set();
+  for (const entry of manifest.entries) {
+    if (!verifyEntry(key, entry)) continue;
+    if (entry.tokenId.length >= 16) set.add(entry.tokenId);
+  }
+  return set;
+}
 
 // src/core/policy.ts
 var SEVERITY = {
@@ -389,6 +397,21 @@ function evaluateToolAuthorization(event, policy) {
   }
   return null;
 }
+function evaluateTokenReuse(event, canaryTokens) {
+  if (canaryTokens.size === 0) return null;
+  const haystack = JSON.stringify(event.raw ?? "");
+  if (!haystack) return null;
+  for (const token of canaryTokens) {
+    if (haystack.includes(token)) {
+      return {
+        action: "pause",
+        detector: "D1",
+        reason: "Canary secret appeared in a later tool call. The bait was read or copied \u2014 this is not a legitimate task."
+      };
+    }
+  }
+  return null;
+}
 function evaluateExfiltration(event, policy, manifestPaths) {
   if (!isShellTool(event.tool)) return null;
   const rawObj = event.raw ?? {};
@@ -415,7 +438,7 @@ function worst(a, b) {
   if (!b) return a;
   return SEVERITY[b.action] > SEVERITY[a.action] ? b : a;
 }
-function evaluate(event, policy, manifestPaths, state) {
+function evaluate(event, policy, manifestPaths, state, canaryTokens = /* @__PURE__ */ new Set()) {
   const now = event.ts;
   if (state.locked) {
     return {
@@ -428,8 +451,11 @@ function evaluate(event, policy, manifestPaths, state) {
   const rawObj = event.raw ?? {};
   const mcpServer = typeof rawObj.mcpServer === "string" ? rawObj.mcpServer : void 0;
   let best = worst(
-    evaluateDangerousCommand(event, policy),
-    worst(evaluateToolAuthorization(event, policy), evaluateExfiltration(event, policy, manifestPaths))
+    evaluateTokenReuse(event, canaryTokens),
+    worst(
+      evaluateDangerousCommand(event, policy),
+      worst(evaluateToolAuthorization(event, policy), evaluateExfiltration(event, policy, manifestPaths))
+    )
   );
   for (const claim of event.paths) {
     const canonical = { ...claim, path: canonicalize(claim.path) };
@@ -905,10 +931,12 @@ async function main() {
     return;
   }
   let manifestPaths;
+  let canaryTokens;
   try {
     const key = loadOrCreateKey();
     const manifest = loadManifest();
     manifestPaths = buildManifestPathSet(manifest, key);
+    canaryTokens = buildManifestTokenSet(manifest, key);
   } catch (err) {
     process.stderr.write(`[canarywatch] manifest unavailable, failing CLOSED: ${err}
 `);
@@ -924,6 +952,7 @@ async function main() {
       tool: input.tool_name,
       paths,
       phase: input.hook_event_name === "PreToolUse" ? "pre" : "post",
+      raw: input.tool_input,
       ts: Date.now()
     };
     const release = acquireLock(input.session_id);
@@ -931,7 +960,7 @@ async function main() {
     try {
       const scopeRoots = getWorkspaceScope(input.cwd);
       const state = loadSession(input.session_id, scopeRoots);
-      decision = evaluate(event, policy, manifestPaths, state);
+      decision = evaluate(event, policy, manifestPaths, state, canaryTokens);
       if (decision.action === "pause" || decision.action === "lockdown") {
         state.locked = true;
       }
