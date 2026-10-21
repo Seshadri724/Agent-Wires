@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Built by `npm run build:plugin` (the npm bin); hook.cjs next to it IS committed.
+/plugin/claude-code/bin/canarywatch.mjs
 *.tsbuildinfo
 .DS_Store
 Thumbs.db

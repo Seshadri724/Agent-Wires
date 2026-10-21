@@ -1,7 +1,9 @@
 # canarywatch — Claude Code plugin
 
-Registers the canarywatch hook on `PreToolUse` (blocking) and `PostToolUse`
-(for write-count tracking used by the mass-modification detector, D4).
+Registers the canarywatch hook on `PreToolUse` (blocking). Write attempts
+are counted before execution by the mass-modification detector (D4), so a
+post-execution hook is not installed: it cannot prevent the action and could
+count the same write twice.
 
 ## Current status: bundled, standalone
 
@@ -28,13 +30,23 @@ module format (ESM vs CommonJS) depends on the nearest `package.json` once
 the file is copied somewhere else. `.cjs` is unambiguous to Node regardless
 of what surrounds it.
 
-## Manual install (today)
+## Install
 
-From a project you want protected, add the equivalent of `hooks/hooks.json`
-to that project's `.claude/settings.json` — or simpler, run:
+From Claude Code, via the repo's marketplace (`.claude-plugin/marketplace.json`):
 
-```bash
-node "<path-to-this-repo>/src/cli/cli.ts" init
+```text
+/plugin marketplace add Seshadri724/Agent-Wires
+/plugin install canarywatch@canarywatch
 ```
 
-which seeds canaries and prints the exact hook JSON to paste in.
+This installs the hook only. Plant bait with `canarywatch seed`; don't run
+`canarywatch init` or `install-hook` alongside the plugin, or the hook is
+registered twice.
+
+The plugin manifest lives at `.claude-plugin/plugin.json`. It deliberately has
+no `hooks` field: `hooks/hooks.json` is loaded automatically, and naming it
+again is rejected as a duplicate.
+
+`bin/canarywatch.mjs` (the npm `bin` entry) is built next to `hook.cjs` by the
+same `npm run build:plugin`, but is gitignored: only `hook.cjs` has to be
+committed for the plugin to work.

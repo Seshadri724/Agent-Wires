@@ -27,7 +27,7 @@ The key insight from the ransomware-era version of this idea: **agents are inter
 
 | ID | Detector | Fires on |
 |---|---|---|
-| D1 | Canary | Targeted read/write/delete of a seeded honey-credential, **or** reuse of its unique secret in a later tool call (Write, Bash, MCP). Listing (Glob/Grep) is logged, not blocked. Files do not label themselves as bait. |
+| D1 | Canary | Targeted read/write/delete of a seeded honey-credential, **or** reuse of its unique secret in a later tool call (Write, Bash, MCP). Broad directory searches are logged; exact Grep reads are treated as reads. Files do not label themselves as bait. |
 | D2 | Sensitive path | Access to well-known secret locations (`.env`, `~/.ssh/id_rsa`, `~/.aws/credentials`) even with an empty manifest. |
 | D3 | Scope | Writes outside the workspace's declared scope roots. Warns once, then escalates. |
 | D4 | Mass modification | More writes than the threshold inside the time window. Allowlisted churn dirs (`node_modules`) don't count. |
@@ -39,24 +39,37 @@ Known gap: in-memory network exfiltration over raw sockets is not observed in v1
 
 ## Install (pilot / beta)
 
-Not published to npm yet. Run from source:
+**Claude Code plugin (one command, hook only):**
+
+```text
+/plugin marketplace add Seshadri724/Agent-Wires
+/plugin install canarywatch@canarywatch
+```
+
+The plugin registers the hook. It does not plant bait; do that with
+`canarywatch seed` (below). Don't also run `canarywatch init` or
+`install-hook` while the plugin is installed: that registers the hook a
+second time and double-counts writes in D4.
+
+**CLI from source (hook + bait):** not published to npm yet.
 
 ```bash
 git clone https://github.com/Seshadri724/Agent-Wires.git
 cd Agent-Wires
-npm install
+npm install       # also builds the bundled CLI and hook
 npm link          # exposes the `canarywatch` command globally
 canarywatch init  # seed unlabeled honey-credentials + install the hook
-canarywatch install-hook
 ```
 
-Requires Node >= 22.18.0. The CLI entrypoint is TypeScript, and 22.18 is the
-first release that strips types without an explicit flag.
+Requires Node >= 22.18.0 (development and tests run the TypeScript source
+directly, and 22.18 is the first release that strips types without a flag).
+The bundled CLI/hook have not been tested on older Node.
 
 Everything canarywatch does is local: it writes decoy files into your
 workspace, appends to a local event log, and adds one entry to
-`~/.claude/settings.json`. Nothing is sent over the network. `canarywatch uninstall-hook`
-and deleting the `.canarywatch/` directory fully remove it.
+`~/.claude/settings.json`. Nothing is sent over the network. To remove it,
+run `canarywatch uninstall-hook`, then `canarywatch unseed`, then remove the
+local canarywatch state directory.
 
 ## Feedback
 
@@ -65,9 +78,16 @@ https://github.com/Seshadri724/Agent-Wires/issues
 
 ## Status
 
-Hook mode works: unlabeled honey-credentials, unique tokens (file contents
-match the manifest), token-reuse detection, session pause/resume, and a
-hash-chained local event log. Daemon mode is not built yet.
+Current pilot scope is the Claude Code `PreToolUse` hook plus the optional
+MCP stdio proxy. This is not an OS sandbox or EDR: shell parsing is best
+effort, and actions that bypass these integration points are not covered.
+Daemon mode and the team control plane are not built. Do not use this as the
+sole security boundary for production systems.
+
+On the current Windows development machine, 91 automated tests, typecheck,
+and the bundled hook self-test pass. The latest bundled subprocess benchmark
+measured p99 168 ms (30 samples), above the 150 ms target; other supported
+operating systems and real customer workflows still need validation.
 
 If you seeded before unlabeled bait landed, run `canarywatch unseed` then
 `canarywatch seed` so old self-labeled files are replaced.

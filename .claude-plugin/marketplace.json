@@ -1,0 +1,12 @@
+{
+  "name": "canarywatch",
+  "owner": { "name": "Seshadri724" },
+  "metadata": { "description": "Runtime tripwires for AI coding agents." },
+  "plugins": [
+    {
+      "name": "canarywatch",
+      "source": "./plugin/claude-code",
+      "description": "Tripwires for AI agents — pauses the session when an agent touches a honeypot file, a secret path, or leaves its scope."
+    }
+  ]
+}

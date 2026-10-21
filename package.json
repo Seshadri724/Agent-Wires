@@ -3,15 +3,19 @@
   "version": "0.1.0",
   "description": "Tripwires for AI agents — deterministic runtime guardrails for autonomous agent filesystem access.",
   "type": "module",
-  "private": true,
   "license": "MIT",
+  "files": [
+    "plugin/claude-code/bin",
+    "plugin/claude-code/hooks",
+    "plugin/claude-code/.claude-plugin"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Seshadri724/Agent-Wires.git"
   },
   "bugs": "https://github.com/Seshadri724/Agent-Wires/issues",
   "bin": {
-    "canarywatch": "src/cli/cli.ts"
+    "canarywatch": "plugin/claude-code/bin/canarywatch.mjs"
   },
   "engines": {
     "node": ">=22.18.0"
@@ -19,6 +23,7 @@
   "scripts": {
     "dev": "node src/cli/cli.ts",
     "build": "npm run build:plugin",
+    "prepare": "npm run build:plugin",
     "cli": "node src/cli/cli.ts",
     "test": "node --test \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",

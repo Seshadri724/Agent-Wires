@@ -35,3 +35,18 @@ await build({
 });
 
 console.log("Built plugin/claude-code/bin/hook.cjs");
+
+// The npm `bin` entry: the CLI bundled next to hook.cjs, because
+// installHook.ts finds the hook as a sibling of the running CLI. ESM (.mjs)
+// since the CLI resolves paths via import.meta.url, which a CJS bundle
+// leaves empty. Gitignored — `prepare` rebuilds it on install/publish.
+await build({
+  entryPoints: [path.join(repoRoot, "src", "cli", "cli.ts")],
+  outfile: path.join(repoRoot, "plugin", "claude-code", "bin", "canarywatch.mjs"),
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+});
+
+console.log("Built plugin/claude-code/bin/canarywatch.mjs");

@@ -2,6 +2,8 @@
   "name": "canarywatch",
   "description": "Tripwires for AI agents — deterministic honeypot files and scope/mass-modification detection with a pause-not-kill response.",
   "version": "0.1.0",
-  "author": "canarywatch",
-  "hooks": "./hooks/hooks.json"
+  "author": { "name": "Seshadri724" },
+  "homepage": "https://github.com/Seshadri724/Agent-Wires",
+  "repository": "https://github.com/Seshadri724/Agent-Wires",
+  "license": "MIT"
 }
