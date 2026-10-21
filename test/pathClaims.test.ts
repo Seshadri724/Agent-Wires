@@ -1,5 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { extractPathClaims } from "../src/hook/pathClaims.ts";
 
 describe("extractPathClaims", () => {
@@ -29,6 +32,19 @@ describe("extractPathClaims", () => {
     const claims = extractPathClaims("Grep", { path: "/a", pattern: "TODO" });
     assert.equal(claims[0].access, "list");
     assert.equal(claims[0].path, "/a");
+  });
+
+  test("Grep of an existing file is treated as a content read", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cw-grep-"));
+    try {
+      const file = path.join(dir, ".env");
+      fs.writeFileSync(file, "SECRET=x");
+      const claims = extractPathClaims("Grep", { path: ".env", pattern: "SECRET" }, dir);
+      assert.equal(claims[0].access, "read");
+      assert.equal(claims[0].path, ".env");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("Grep with no path defaults to cwd marker", () => {

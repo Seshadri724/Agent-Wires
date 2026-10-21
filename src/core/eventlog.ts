@@ -87,9 +87,19 @@ function updateHeadAnchor(maxSeq: number, headHash: string): void {
     const anchor: HeadAnchor = { maxSeq, headHash, hmac };
     const tmp = `${headAnchorPath()}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(anchor, null, 2));
-    fs.renameSync(tmp, headAnchorPath());
-  } catch {
-    // Best-effort head anchor update
+    try {
+      fs.renameSync(tmp, headAnchorPath());
+    } catch {
+      // Windows may reject rename over an existing destination. Preserve
+      // the checkpoint even when atomic replacement is unavailable.
+      fs.copyFileSync(tmp, headAnchorPath());
+      fs.unlinkSync(tmp);
+    }
+  } catch (err) {
+    // The hook must not report an action as allowed if its evidence checkpoint
+    // could not be persisted.
+    process.stderr.write(`[canarywatch] failed to update event-log head anchor: ${err}\n`);
+    throw err;
   }
 }
 
@@ -97,6 +107,10 @@ export function appendEvent(decision: Decision): LogEntry {
   const redactedDecision = redactSecrets(decision);
   const release = acquireLock("__eventlog_lock__");
   try {
+    const integrity = verifyChain();
+    if (!integrity.valid) {
+      throw new Error(`Refusing to append to an invalid event log: ${integrity.reason ?? "integrity check failed"}`);
+    }
     const prev = lastEntry();
     const seq = prev ? prev.seq + 1 : 0;
     const prevHash = prev ? prev.hash : GENESIS_HASH;
@@ -124,7 +138,12 @@ export function readEvents(): LogEntry[] {
 }
 
 export function verifyChain(): { valid: boolean; brokenAtSeq?: number; reason?: string } {
-  const entries = readEvents();
+  let entries: LogEntry[];
+  try {
+    entries = readEvents();
+  } catch (err) {
+    return { valid: false, reason: `Event log is corrupt or unreadable: ${err}` };
+  }
   let expectedPrev = GENESIS_HASH;
   let maxSeqInLog = -1;
   let lastHashInLog = "";
@@ -143,6 +162,9 @@ export function verifyChain(): { valid: boolean; brokenAtSeq?: number; reason?: 
 
   // Check tail truncation against head anchor checkpoint
   const ap = headAnchorPath();
+  if (entries.length > 0 && !fs.existsSync(ap)) {
+    return { valid: false, reason: "Head anchor is missing for a non-empty event log" };
+  }
   if (fs.existsSync(ap)) {
     let anchor: HeadAnchor;
     try {

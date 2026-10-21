@@ -70,3 +70,30 @@ test("install-hook and uninstall-hook integration", () => {
   }
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
+
+test("install-hook preserves malformed settings and reports failure", () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-test-invalid-config-"));
+  const origHome = process.env.HOME;
+  const origUserProfile = process.env.USERPROFILE;
+  const previousExitCode = process.exitCode;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
+  const configPath = path.join(tmpHome, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const malformed = '{"custom": "keep me"';
+  fs.writeFileSync(configPath, malformed);
+  process.exitCode = 0;
+
+  try {
+    runInstallHook([]);
+    assert.equal(fs.readFileSync(configPath, "utf8"), malformed);
+    assert.equal(process.exitCode, 1);
+  } finally {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (origUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUserProfile;
+    process.exitCode = previousExitCode;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});

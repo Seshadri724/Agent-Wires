@@ -38,7 +38,7 @@ describe("manifest sign/verify", () => {
     fs.rmSync(ws, { recursive: true, force: true });
   });
 
-  test("a tampered entry (wrong hmac) is excluded from the path set", async () => {
+  test("a tampered entry (wrong hmac) fails manifest verification", async () => {
     const { loadOrCreateKey, addManifestEntry, buildManifestPathSet, loadManifest, saveManifest } = await import(
       "../src/core/manifest.ts"
     );
@@ -53,10 +53,16 @@ describe("manifest sign/verify", () => {
     saveManifest(manifest);
 
     const reloaded = loadManifest();
-    const pathSet = buildManifestPathSet(reloaded, key);
-    assert.ok(!pathSet.has(entry.path), "tampered entry must not be trusted");
+    assert.throws(() => buildManifestPathSet(reloaded, key), /failed verification/);
 
     fs.rmSync(ws, { recursive: true, force: true });
+  });
+
+  test("enforcement mode rejects missing and empty manifests", async () => {
+    const { loadManifest, saveManifest } = await import("../src/core/manifest.ts");
+    assert.throws(() => loadManifest({ requireEntries: true }), /missing/);
+    saveManifest({ version: 1, entries: [] });
+    assert.throws(() => loadManifest({ requireEntries: true }), /no registered canaries/);
   });
 
   test("verification fails against a different key", async () => {

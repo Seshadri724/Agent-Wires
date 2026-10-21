@@ -13,6 +13,7 @@ export interface PathClaim {
 export interface ToolCallEvent {
   kind: "tool_call";
   sessionId: string;
+  cwd?: string;
   tool: string;
   paths: PathClaim[];
   phase: "pre" | "post";

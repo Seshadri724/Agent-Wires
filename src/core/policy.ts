@@ -227,7 +227,7 @@ function evaluateExfiltration(event: ToolCallEvent, policy: PolicyConfig, manife
 
   // Check if command references sensitive paths or canaries
   for (const claim of event.paths) {
-    const canonicalPath = canonicalize(claim.path);
+    const canonicalPath = canonicalize(claim.path, event.cwd);
     const isCanary = manifestPaths.has(canonicalPath);
     const isSensitive = policy.sensitivePaths.some((p) => globMatch(p, canonicalPath));
     if (isCanary || isSensitive) {
@@ -271,6 +271,18 @@ export function evaluate(
     };
   }
 
+  // A post-tool event describes an action that has already run. Do not
+  // replay pre-execution detectors or increment violation state after the
+  // fact; enforcement belongs at the pre-tool boundary.
+  if (event.phase === "post") {
+    return {
+      action: "allow",
+      detector: "none",
+      reason: "Post-tool event is observational only.",
+      evidence: { sessionId: event.sessionId, tool: event.tool, paths: event.paths.map((p) => p.path), ts: now },
+    };
+  }
+
   const mcpServer = mcpServerOf(event);
 
   let best: ClaimVerdict | null = worst(
@@ -282,7 +294,7 @@ export function evaluate(
   );
 
   for (const claim of event.paths) {
-    const canonical = { ...claim, path: canonicalize(claim.path) };
+    const canonical = { ...claim, path: canonicalize(claim.path, event.cwd) };
     if (isExempt(state, canonical, now)) continue;
 
     const canary = evaluateCanary(canonical, manifestPaths);

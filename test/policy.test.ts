@@ -163,6 +163,18 @@ describe("D3 scope detector", () => {
     );
     assert.equal(decision.action, "allow");
   });
+
+  test("post-tool scope events do not re-evaluate or escalate the already-run write", () => {
+    const state = freshSession({ scopeRoots: [canonicalize("/workspace")], scopeViolations: 1 });
+    const decision = evaluate(
+      event({ phase: "post", tool: "Write", paths: [{ path: "/etc/passwd", access: "write", confidence: "exact" }] }),
+      DEFAULT_POLICY,
+      new Set(),
+      state
+    );
+    assert.equal(decision.action, "allow");
+    assert.equal(state.scopeViolations, 1);
+  });
 });
 
 describe("D4 mass modification detector", () => {

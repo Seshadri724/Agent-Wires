@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { loadSession } from "../src/core/session.ts";
 import { appendEvent, verifyChain } from "../src/core/eventlog.ts";
-import { canarywatchHome } from "../src/core/home.ts";
+import { canarywatchHome, eventLogPath } from "../src/core/home.ts";
 import type { Decision } from "../src/core/types.ts";
 
 test("corrupted session state file fails CLOSED (locked: true)", () => {
@@ -61,6 +61,17 @@ test("tampered or corrupted head.anchor.json causes verifyChain to fail", () => 
   const corruptResult = verifyChain();
   assert.equal(corruptResult.valid, false, "Corrupted head anchor file MUST fail verification");
   assert.match(corruptResult.reason || "", /corrupt or unreadable/i);
+
+  fs.rmSync(anchorPath);
+  const missingResult = verifyChain();
+  assert.equal(missingResult.valid, false, "A non-empty log without an anchor MUST fail verification");
+  assert.match(missingResult.reason || "", /anchor is missing/i);
+  assert.throws(() => appendEvent(decision), /invalid event log/);
+
+  fs.writeFileSync(eventLogPath(), "not-json\n");
+  const malformedLogResult = verifyChain();
+  assert.equal(malformedLogResult.valid, false, "Malformed event data MUST fail verification");
+  assert.match(malformedLogResult.reason || "", /corrupt or unreadable/i);
 
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });

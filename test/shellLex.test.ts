@@ -11,6 +11,13 @@ describe("extractBashPathClaims", () => {
     assert.equal(claims[0].confidence, "lexed");
   });
 
+  test("grep and rg treat file targets as reads", () => {
+    for (const command of ["grep SECRET .env", "rg SECRET ~/.aws/credentials"]) {
+      const claims = extractBashPathClaims(command);
+      assert.ok(claims.some((claim) => claim.access === "read"));
+    }
+  });
+
   test("rm -rf extracts a delete claim and ignores the flag", () => {
     const claims = extractBashPathClaims("rm -rf ~/.ssh");
     assert.equal(claims.length, 1);

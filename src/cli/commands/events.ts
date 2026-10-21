@@ -4,7 +4,8 @@ import { listSessions } from "../../core/session.ts";
 export function runEvents(args: string[]): void {
   if (args.includes("--verify")) {
     const result = verifyChain();
-    console.log(result.valid ? "Event log chain OK." : `Event log chain BROKEN at seq ${result.brokenAtSeq}.`);
+    console.log(result.valid ? "Event log chain OK." : `Event log chain BROKEN${result.brokenAtSeq === undefined ? "" : ` at seq ${result.brokenAtSeq}`}: ${result.reason ?? "unknown integrity error"}`);
+    if (!result.valid) process.exitCode = 1;
     return;
   }
 

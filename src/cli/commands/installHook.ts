@@ -47,7 +47,7 @@ export function resolveHookScript(): string | undefined {
   ].find((p) => fs.existsSync(p));
 }
 
-export function runInstallHook(args: string[]): void {
+export function runInstallHook(args: string[]): boolean {
   const dryRun = args.includes("--dry-run");
   const actualHook = resolveHookScript();
 
@@ -56,7 +56,7 @@ export function runInstallHook(args: string[]): void {
     console.error("  Expected bin/hook.cjs next to the CLI, or a source checkout.");
     console.error("  Nothing was registered — canarywatch is NOT protecting this machine.");
     process.exitCode = 1;
-    return;
+    return false;
   }
 
   const hookCommandStr = getHookCommand(actualHook);
@@ -70,12 +70,30 @@ export function runInstallHook(args: string[]): void {
   if (fs.existsSync(claudeConfigPath)) {
     try {
       config = JSON.parse(fs.readFileSync(claudeConfigPath, "utf8"));
-    } catch {
-      config = {};
+    } catch (err) {
+      console.error(`canarywatch install-hook: could not parse ${claudeConfigPath}: ${err}`);
+      console.error("  No changes were made. Repair the JSON file, then retry.");
+      process.exitCode = 1;
+      return false;
+    }
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      console.error(`canarywatch install-hook: ${claudeConfigPath} must contain a JSON object.`);
+      process.exitCode = 1;
+      return false;
     }
   }
 
+  if (config.hooks !== undefined && (!config.hooks || typeof config.hooks !== "object" || Array.isArray(config.hooks))) {
+    console.error(`canarywatch install-hook: the hooks property in ${claudeConfigPath} must be an object.`);
+    process.exitCode = 1;
+    return false;
+  }
   const hooks = (config.hooks ?? {}) as Record<string, any[]>;
+  if (hooks.PreToolUse !== undefined && !Array.isArray(hooks.PreToolUse)) {
+    console.error(`canarywatch install-hook: hooks.PreToolUse in ${claudeConfigPath} must be an array.`);
+    process.exitCode = 1;
+    return false;
+  }
   const preHooks = (hooks.PreToolUse ?? []) as any[];
 
   const newHookEntry = {
@@ -95,7 +113,7 @@ export function runInstallHook(args: string[]): void {
 
   if (hasHook) {
     console.log(`  Status: canarywatch hook is already registered in ${claudeConfigPath}`);
-    return;
+    return !dryRun;
   }
 
   preHooks.push(newHookEntry);
@@ -110,6 +128,7 @@ export function runInstallHook(args: string[]): void {
     fs.writeFileSync(claudeConfigPath, JSON.stringify(config, null, 2));
     console.log(`  Successfully registered canarywatch hook in ${claudeConfigPath}`);
   }
+  return !dryRun;
 }
 
 export function runUninstallHook(): void {

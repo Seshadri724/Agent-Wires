@@ -25,11 +25,18 @@ export function startMcpProxy(targetCommand: string, targetArgs: string[], optio
   const cwd = options.cwd || process.cwd();
   const mcpServerName = options.mcpServerName || targetCommand;
 
+  // Validate local enforcement state before starting the underlying server.
+  const key = loadOrCreateKey();
+  const manifest = loadManifest({ requireEntries: true });
+  const manifestPaths = buildManifestPathSet(manifest, key);
+  const canaryTokens = buildManifestTokenSet(manifest, key);
+  const policy = loadPolicy();
+  const scopeRoots = getWorkspaceScope(cwd);
+
   const targetProcess = spawn(targetCommand, targetArgs, {
     cwd,
     stdio: ["pipe", "pipe", "inherit"],
   });
-
   const rlStdin = readline.createInterface({ input: process.stdin, terminal: false });
 
   // Relay output from target back to stdout
@@ -37,16 +44,16 @@ export function startMcpProxy(targetCommand: string, targetArgs: string[], optio
     process.stdout.write(chunk);
   });
 
+  targetProcess.on("error", (err) => {
+    process.stderr.write(`[canarywatch] failed to start MCP server '${targetCommand}': ${err}\n`);
+    process.exitCode = 1;
+    rlStdin.close();
+    process.stdin.pause();
+  });
+
   targetProcess.on("exit", (code) => {
     process.exit(code ?? 0);
   });
-
-  const key = loadOrCreateKey();
-  const manifest = loadManifest();
-  const manifestPaths = buildManifestPathSet(manifest, key);
-  const canaryTokens = buildManifestTokenSet(manifest, key);
-  const policy = loadPolicy();
-  const scopeRoots = getWorkspaceScope(cwd);
 
   rlStdin.on("line", (line) => {
     let msg: Record<string, unknown>;
@@ -59,14 +66,31 @@ export function startMcpProxy(targetCommand: string, targetArgs: string[], optio
 
     if (msg.jsonrpc === "2.0" && msg.method === "tools/call") {
       const id = msg.id;
-      const params = (msg.params ?? {}) as { name?: string; arguments?: Record<string, unknown> };
-      const toolName = params.name ?? "unknown_mcp_tool";
-      const toolArgs = params.arguments ?? {};
+      const params = msg.params;
+      if (
+        !params || typeof params !== "object" || Array.isArray(params) ||
+        typeof (params as Record<string, unknown>).name !== "string" ||
+        ((params as Record<string, unknown>).arguments !== undefined &&
+          (!(params as Record<string, unknown>).arguments ||
+            typeof (params as Record<string, unknown>).arguments !== "object" ||
+            Array.isArray((params as Record<string, unknown>).arguments)))
+      ) {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0",
+          id: id ?? null,
+          error: { code: -32600, message: "Invalid tools/call request; request was not forwarded." },
+        }) + "\n");
+        return;
+      }
+      const typedParams = params as { name: string; arguments?: Record<string, unknown> };
+      const toolName = typedParams.name;
+      const toolArgs = typedParams.arguments ?? {};
 
-      const claims = extractPathClaims(toolName, toolArgs);
+      const claims = extractPathClaims(toolName, toolArgs, cwd);
       const event: ToolCallEvent = {
         kind: "tool_call",
         sessionId,
+        cwd,
         tool: toolName,
         paths: claims,
         phase: "pre",

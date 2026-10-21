@@ -208,10 +208,24 @@ var EMPTY_MANIFEST = { version: 1, entries: [] };
 function loadOrCreateKey() {
   const p = keyPath();
   if (import_node_fs4.default.existsSync(p)) {
-    return import_node_fs4.default.readFileSync(p);
+    const existing = import_node_fs4.default.readFileSync(p);
+    if (existing.length !== 32) throw new Error("Canary manifest key has an invalid length");
+    return existing;
   }
   const key = import_node_crypto.default.randomBytes(32);
-  import_node_fs4.default.writeFileSync(p, key, { mode: 384 });
+  try {
+    const fd = import_node_fs4.default.openSync(p, "wx", 384);
+    try {
+      import_node_fs4.default.writeFileSync(fd, key);
+    } finally {
+      import_node_fs4.default.closeSync(fd);
+    }
+  } catch (err) {
+    if (!import_node_fs4.default.existsSync(p)) throw err;
+    const existing = import_node_fs4.default.readFileSync(p);
+    if (existing.length !== 32) throw new Error("Canary manifest key has an invalid length");
+    return existing;
+  }
   try {
     import_node_fs4.default.chmodSync(p, 384);
   } catch {
@@ -223,22 +237,34 @@ function signEntry(key, entry) {
   return import_node_crypto.default.createHmac("sha256", key).update(payload).digest("hex");
 }
 function verifyEntry(key, entry) {
+  if (!entry || typeof entry.hmac !== "string" || !/^[a-f0-9]{64}$/i.test(entry.hmac)) return false;
   const expected = signEntry(key, entry);
   return import_node_crypto.default.timingSafeEqual(Buffer.from(expected), Buffer.from(entry.hmac));
 }
-function loadManifest() {
+function loadManifest(options = {}) {
   const p = manifestPath();
-  if (!import_node_fs4.default.existsSync(p)) return { ...EMPTY_MANIFEST };
+  if (!import_node_fs4.default.existsSync(p)) {
+    if (options.requireEntries) throw new Error("Canary manifest is missing");
+    return { ...EMPTY_MANIFEST };
+  }
   const raw = import_node_fs4.default.readFileSync(p, "utf8");
-  if (raw.trim().length === 0) return { ...EMPTY_MANIFEST };
-  return JSON.parse(raw);
+  if (raw.trim().length === 0) {
+    if (options.requireEntries) throw new Error("Canary manifest is empty");
+    return { ...EMPTY_MANIFEST };
+  }
+  const manifest = JSON.parse(raw);
+  if (manifest.version !== 1 || !Array.isArray(manifest.entries)) {
+    throw new Error("Canary manifest has an invalid format");
+  }
+  if (options.requireEntries && manifest.entries.length === 0) {
+    throw new Error("Canary manifest has no registered canaries");
+  }
+  return manifest;
 }
 function buildManifestPathSet(manifest, key) {
   const set = /* @__PURE__ */ new Set();
   for (const entry of manifest.entries) {
-    if (!verifyEntry(key, entry)) {
-      continue;
-    }
+    if (!verifyEntry(key, entry)) throw new Error(`Canary manifest entry failed verification: ${entry.path}`);
     set.add(entry.path);
   }
   return set;
@@ -246,7 +272,7 @@ function buildManifestPathSet(manifest, key) {
 function buildManifestTokenSet(manifest, key) {
   const set = /* @__PURE__ */ new Set();
   for (const entry of manifest.entries) {
-    if (!verifyEntry(key, entry)) continue;
+    if (!verifyEntry(key, entry)) throw new Error(`Canary manifest entry failed verification: ${entry.path}`);
     if (entry.tokenId.length >= 16) set.add(entry.tokenId);
   }
   return set;
@@ -425,7 +451,7 @@ function evaluateExfiltration(event, policy, manifestPaths) {
   const isOutboundCmd = /\b(curl|wget|nc|ncat|socat|scp|rsync|ssh)\b/i.test(command);
   if (!isOutboundCmd) return null;
   for (const claim of event.paths) {
-    const canonicalPath = canonicalize(claim.path);
+    const canonicalPath = canonicalize(claim.path, event.cwd);
     const isCanary = manifestPaths.has(canonicalPath);
     const isSensitive = policy.sensitivePaths.some((p) => globMatch(p, canonicalPath));
     if (isCanary || isSensitive) {
@@ -453,6 +479,14 @@ function evaluate(event, policy, manifestPaths, state, canaryTokens = /* @__PURE
       evidence: { sessionId: event.sessionId, tool: event.tool, paths: event.paths.map((p) => p.path), ts: now }
     };
   }
+  if (event.phase === "post") {
+    return {
+      action: "allow",
+      detector: "none",
+      reason: "Post-tool event is observational only.",
+      evidence: { sessionId: event.sessionId, tool: event.tool, paths: event.paths.map((p) => p.path), ts: now }
+    };
+  }
   const mcpServer = mcpServerOf(event);
   let best = worst(
     evaluateTokenReuse(event, canaryTokens),
@@ -462,7 +496,7 @@ function evaluate(event, policy, manifestPaths, state, canaryTokens = /* @__PURE
     )
   );
   for (const claim of event.paths) {
-    const canonical = { ...claim, path: canonicalize(claim.path) };
+    const canonical = { ...claim, path: canonicalize(claim.path, event.cwd) };
     if (isExempt(state, canonical, now)) continue;
     const canary = evaluateCanary(canonical, manifestPaths);
     const sensitive = evaluateSensitive(canonical, policy);
@@ -683,14 +717,26 @@ function updateHeadAnchor(maxSeq, headHash) {
     const anchor = { maxSeq, headHash, hmac };
     const tmp = `${headAnchorPath()}.${process.pid}.tmp`;
     import_node_fs7.default.writeFileSync(tmp, JSON.stringify(anchor, null, 2));
-    import_node_fs7.default.renameSync(tmp, headAnchorPath());
-  } catch {
+    try {
+      import_node_fs7.default.renameSync(tmp, headAnchorPath());
+    } catch {
+      import_node_fs7.default.copyFileSync(tmp, headAnchorPath());
+      import_node_fs7.default.unlinkSync(tmp);
+    }
+  } catch (err) {
+    process.stderr.write(`[canarywatch] failed to update event-log head anchor: ${err}
+`);
+    throw err;
   }
 }
 function appendEvent(decision) {
   const redactedDecision = redactSecrets(decision);
   const release = acquireLock("__eventlog_lock__");
   try {
+    const integrity = verifyChain();
+    if (!integrity.valid) {
+      throw new Error(`Refusing to append to an invalid event log: ${integrity.reason ?? "integrity check failed"}`);
+    }
     const prev = lastEntry();
     const seq = prev ? prev.seq + 1 : 0;
     const prevHash = prev ? prev.hash : GENESIS_HASH;
@@ -702,6 +748,60 @@ function appendEvent(decision) {
   } finally {
     release();
   }
+}
+function readEvents() {
+  const p = eventLogPath();
+  if (!import_node_fs7.default.existsSync(p)) return [];
+  return import_node_fs7.default.readFileSync(p, "utf8").split("\n").filter((l) => l.trim().length > 0).map((l) => JSON.parse(l));
+}
+function verifyChain() {
+  let entries;
+  try {
+    entries = readEvents();
+  } catch (err) {
+    return { valid: false, reason: `Event log is corrupt or unreadable: ${err}` };
+  }
+  let expectedPrev = GENESIS_HASH;
+  let maxSeqInLog = -1;
+  let lastHashInLog = "";
+  for (const entry of entries) {
+    if (entry.prevHash !== expectedPrev) return { valid: false, brokenAtSeq: entry.seq, reason: "Hash chain link mismatch" };
+    const recomputed = import_node_crypto2.default.createHash("sha256").update(entry.prevHash + canonicalJson({ seq: entry.seq, decision: entry.decision })).digest("hex");
+    if (recomputed !== entry.hash) return { valid: false, brokenAtSeq: entry.seq, reason: "Content hash tampered" };
+    expectedPrev = entry.hash;
+    maxSeqInLog = entry.seq;
+    lastHashInLog = entry.hash;
+  }
+  const ap = headAnchorPath();
+  if (entries.length > 0 && !import_node_fs7.default.existsSync(ap)) {
+    return { valid: false, reason: "Head anchor is missing for a non-empty event log" };
+  }
+  if (import_node_fs7.default.existsSync(ap)) {
+    let anchor;
+    try {
+      const rawAnchor = import_node_fs7.default.readFileSync(ap, "utf8");
+      anchor = JSON.parse(rawAnchor);
+    } catch (err) {
+      return { valid: false, reason: `Head anchor file corrupt or unreadable: ${err}` };
+    }
+    try {
+      const key = loadOrCreateKey();
+      const expectedHmac = signAnchor(key, anchor.maxSeq, anchor.headHash);
+      if (!import_node_crypto2.default.timingSafeEqual(Buffer.from(expectedHmac), Buffer.from(anchor.hmac))) {
+        return { valid: false, brokenAtSeq: anchor.maxSeq, reason: "Head anchor signature verification failed (tampered anchor)" };
+      }
+    } catch {
+      return { valid: false, brokenAtSeq: anchor.maxSeq, reason: "Head anchor signature verification error" };
+    }
+    if (maxSeqInLog < anchor.maxSeq || anchor.maxSeq >= 0 && lastHashInLog !== anchor.headHash) {
+      return {
+        valid: false,
+        brokenAtSeq: anchor.maxSeq,
+        reason: `Tail truncation detected: logged seq ${maxSeqInLog} < anchored seq ${anchor.maxSeq}`
+      };
+    }
+  }
+  return { valid: true };
 }
 
 // src/core/notifier.ts
@@ -764,7 +864,8 @@ function sendDesktopNotification(title, message) {
 // src/hook/shellLex.ts
 var WRITE_COMMANDS = /* @__PURE__ */ new Set(["rm", "mv", "cp", "truncate", "shred", "tee", "chmod", "chown"]);
 var DELETE_COMMANDS = /* @__PURE__ */ new Set(["rm", "shred"]);
-var LIST_COMMANDS = /* @__PURE__ */ new Set(["ls", "find", "grep", "rg", "stat", "file", "tree"]);
+var LIST_COMMANDS = /* @__PURE__ */ new Set(["ls", "find", "stat", "file", "tree"]);
+var READ_COMMANDS = /* @__PURE__ */ new Set(["grep", "rg"]);
 function tokenize(command) {
   const tokens = [];
   let current = "";
@@ -831,6 +932,7 @@ function claimsForSegment(segment) {
   if (DELETE_COMMANDS.has(cmd)) access = "delete";
   else if (WRITE_COMMANDS.has(cmd)) access = "write";
   else if (LIST_COMMANDS.has(cmd)) access = "list";
+  else if (READ_COMMANDS.has(cmd)) access = "read";
   const claims = [];
   const raw = segment.join(" ");
   const redirectMatches = raw.matchAll(/>>?\s*([^\s|;&]+)/g);
@@ -847,7 +949,9 @@ function claimsForSegment(segment) {
 }
 
 // src/hook/pathClaims.ts
-function extractPathClaims(toolName, input) {
+var import_node_fs8 = __toESM(require("node:fs"), 1);
+var import_node_path5 = __toESM(require("node:path"), 1);
+function extractPathClaims(toolName, input, cwd = process.cwd()) {
   if (!input || typeof input !== "object") return [];
   switch (toolName) {
     case "Read":
@@ -861,7 +965,13 @@ function extractPathClaims(toolName, input) {
       return input.pattern ? [{ path: joinPathAndPattern(input.path, input.pattern), access: "list", confidence: "glob" }] : [];
     case "Grep": {
       const target = input.path ?? ".";
-      return [{ path: String(target), access: "list", confidence: "glob" }];
+      const targetPath = String(target);
+      let access2 = "list";
+      try {
+        if (import_node_fs8.default.statSync(import_node_path5.default.resolve(cwd, targetPath)).isFile()) access2 = "read";
+      } catch {
+      }
+      return [{ path: targetPath, access: access2, confidence: "glob" }];
     }
     case "Bash": {
       const cmd = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : void 0;
@@ -893,11 +1003,21 @@ function joinPathAndPattern(basePath, pattern) {
 }
 
 // src/hook/hook.ts
+var MAX_HOOK_INPUT_BYTES = 1024 * 1024;
 function readStdin() {
   return new Promise((resolve, reject) => {
     let data = "";
+    let bytes = 0;
     process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => data += chunk);
+    process.stdin.on("data", (chunk) => {
+      bytes += Buffer.byteLength(chunk, "utf8");
+      if (bytes > MAX_HOOK_INPUT_BYTES) {
+        process.stdin.pause();
+        reject(new Error(`hook input exceeds ${MAX_HOOK_INPUT_BYTES} bytes`));
+        return;
+      }
+      data += chunk;
+    });
     process.stdin.on("end", () => resolve(data));
     process.stdin.on("error", reject);
   });
@@ -924,21 +1044,32 @@ function emit(permissionDecision, reason) {
   );
 }
 async function main() {
-  const raw = await readStdin();
+  let raw;
+  try {
+    raw = await readStdin();
+  } catch (err) {
+    process.stderr.write(`[canarywatch] could not read hook input, failing CLOSED: ${err}
+`);
+    emit("deny", "canarywatch: hook input was invalid or too large; denying this action for safety.");
+    return;
+  }
   let input;
   try {
     input = JSON.parse(raw);
+    if (!input || typeof input !== "object" || typeof input.session_id !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/.test(input.session_id) || typeof input.cwd !== "string" || input.cwd.length === 0 || input.hook_event_name !== "PreToolUse" || typeof input.tool_name !== "string" || input.tool_name.length === 0 || !input.tool_input || typeof input.tool_input !== "object" || Array.isArray(input.tool_input)) {
+      throw new Error("hook input does not match the expected schema");
+    }
   } catch (err) {
-    process.stderr.write(`[canarywatch] failed to parse hook input, allowing (fail-open): ${err}
+    process.stderr.write(`[canarywatch] failed to parse hook input, failing CLOSED: ${err}
 `);
-    emit("allow", "canarywatch: could not parse hook input, allowing by default.");
+    emit("deny", "canarywatch: could not parse hook input, denying this action for safety.");
     return;
   }
   let manifestPaths;
   let canaryTokens;
   try {
     const key = loadOrCreateKey();
-    const manifest = loadManifest();
+    const manifest = loadManifest({ requireEntries: true });
     manifestPaths = buildManifestPathSet(manifest, key);
     canaryTokens = buildManifestTokenSet(manifest, key);
   } catch (err) {
@@ -949,13 +1080,14 @@ async function main() {
   }
   try {
     const policy = loadPolicy();
-    const paths = extractPathClaims(input.tool_name, input.tool_input);
+    const paths = extractPathClaims(input.tool_name, input.tool_input, input.cwd);
     const event = {
       kind: "tool_call",
       sessionId: input.session_id,
+      cwd: input.cwd,
       tool: input.tool_name,
       paths,
-      phase: input.hook_event_name === "PreToolUse" ? "pre" : "post",
+      phase: "pre",
       raw: input.tool_input,
       ts: Date.now()
     };
@@ -993,9 +1125,9 @@ async function main() {
         break;
     }
   } catch (err) {
-    process.stderr.write(`[canarywatch] unexpected error, allowing (fail-open): ${err}
+    process.stderr.write(`[canarywatch] enforcement error, failing CLOSED: ${err}
 `);
-    emit("allow", "canarywatch: internal error, allowing by default.");
+    emit("deny", "canarywatch: enforcement failed, denying this action for safety.");
   }
 }
 main();

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The Claude Code PreToolUse/PostToolUse hook entrypoint.
+// The Claude Code PreToolUse hook entrypoint.
 // docs/ARCHITECTURE.md §3.2 "Hook Sensor", §3.4 "Response Orchestrator".
 //
 // Reads the hook JSON Claude Code sends on stdin, evaluates it against
@@ -8,8 +8,8 @@
 //
 // Fail-mode policy (docs/ARCHITECTURE.md §6): if we cannot load/verify the
 // manifest, we cannot rule out a canary touch, so we fail CLOSED (deny).
-// Any other unexpected error fails OPEN (allow) with a loud stderr warning,
-// so a bug in canarywatch never becomes "the agent can't do anything."
+// Any other unexpected error fails CLOSED so state or logging failures cannot
+// silently turn an enforcement decision into an allow.
 
 import { loadPolicy } from "../core/config.ts";
 import { buildManifestPathSet, buildManifestTokenSet, loadManifest, loadOrCreateKey } from "../core/manifest.ts";
@@ -24,16 +24,27 @@ import type { Decision, ToolCallEvent } from "../core/types.ts";
 interface ClaudeHookInput {
   session_id: string;
   cwd: string;
-  hook_event_name: "PreToolUse" | "PostToolUse";
+  hook_event_name: "PreToolUse";
   tool_name: string;
   tool_input: Record<string, unknown>;
 }
 
+const MAX_HOOK_INPUT_BYTES = 1024 * 1024;
+
 function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = "";
+    let bytes = 0;
     process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("data", (chunk: string) => {
+      bytes += Buffer.byteLength(chunk, "utf8");
+      if (bytes > MAX_HOOK_INPUT_BYTES) {
+        process.stdin.pause();
+        reject(new Error(`hook input exceeds ${MAX_HOOK_INPUT_BYTES} bytes`));
+        return;
+      }
+      data += chunk;
+    });
     process.stdin.on("end", () => resolve(data));
     process.stdin.on("error", reject);
   });
@@ -67,13 +78,36 @@ function emit(permissionDecision: "allow" | "deny" | "ask", reason: string): voi
 }
 
 async function main(): Promise<void> {
-  const raw = await readStdin();
+  let raw: string;
+  try {
+    raw = await readStdin();
+  } catch (err) {
+    process.stderr.write(`[canarywatch] could not read hook input, failing CLOSED: ${err}\n`);
+    emit("deny", "canarywatch: hook input was invalid or too large; denying this action for safety.");
+    return;
+  }
   let input: ClaudeHookInput;
   try {
     input = JSON.parse(raw);
+    if (
+      !input ||
+      typeof input !== "object" ||
+      typeof input.session_id !== "string" ||
+      !/^[A-Za-z0-9._:-]{1,128}$/.test(input.session_id) ||
+      typeof input.cwd !== "string" ||
+      input.cwd.length === 0 ||
+      input.hook_event_name !== "PreToolUse" ||
+      typeof input.tool_name !== "string" ||
+      input.tool_name.length === 0 ||
+      !input.tool_input ||
+      typeof input.tool_input !== "object" ||
+      Array.isArray(input.tool_input)
+    ) {
+      throw new Error("hook input does not match the expected schema");
+    }
   } catch (err) {
-    process.stderr.write(`[canarywatch] failed to parse hook input, allowing (fail-open): ${err}\n`);
-    emit("allow", "canarywatch: could not parse hook input, allowing by default.");
+    process.stderr.write(`[canarywatch] failed to parse hook input, failing CLOSED: ${err}\n`);
+    emit("deny", "canarywatch: could not parse hook input, denying this action for safety.");
     return;
   }
 
@@ -81,7 +115,7 @@ async function main(): Promise<void> {
   let canaryTokens: Set<string>;
   try {
     const key = loadOrCreateKey();
-    const manifest = loadManifest();
+    const manifest = loadManifest({ requireEntries: true });
     manifestPaths = buildManifestPathSet(manifest, key);
     canaryTokens = buildManifestTokenSet(manifest, key);
   } catch (err) {
@@ -94,14 +128,15 @@ async function main(): Promise<void> {
 
   try {
     const policy = loadPolicy();
-    const paths = extractPathClaims(input.tool_name, input.tool_input);
+    const paths = extractPathClaims(input.tool_name, input.tool_input, input.cwd);
 
     const event: ToolCallEvent = {
       kind: "tool_call",
       sessionId: input.session_id,
+      cwd: input.cwd,
       tool: input.tool_name,
       paths,
-      phase: input.hook_event_name === "PreToolUse" ? "pre" : "post",
+      phase: "pre",
       raw: input.tool_input,
       ts: Date.now(),
     };
@@ -147,8 +182,8 @@ async function main(): Promise<void> {
         break;
     }
   } catch (err) {
-    process.stderr.write(`[canarywatch] unexpected error, allowing (fail-open): ${err}\n`);
-    emit("allow", "canarywatch: internal error, allowing by default.");
+    process.stderr.write(`[canarywatch] enforcement error, failing CLOSED: ${err}\n`);
+    emit("deny", "canarywatch: enforcement failed, denying this action for safety.");
   }
 }
 

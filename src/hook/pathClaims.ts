@@ -2,12 +2,14 @@
 // docs/ARCHITECTURE.md §3.2, §4.2.
 
 import { extractBashPathClaims } from "./shellLex.ts";
+import fs from "node:fs";
+import path from "node:path";
 import type { Access, PathClaim } from "../core/types.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ToolInput = Record<string, any>;
 
-export function extractPathClaims(toolName: string, input: ToolInput): PathClaim[] {
+export function extractPathClaims(toolName: string, input: ToolInput, cwd = process.cwd()): PathClaim[] {
   if (!input || typeof input !== "object") return [];
 
   // 1. Exact Claude Code harness tool matches
@@ -29,7 +31,18 @@ export function extractPathClaims(toolName: string, input: ToolInput): PathClaim
 
     case "Grep": {
       const target = input.path ?? ".";
-      return [{ path: String(target), access: "list", confidence: "glob" }];
+      const targetPath = String(target);
+      // Grep reads file contents. Treat a concrete existing file as a read
+      // so exact canaries and sensitive files cannot be searched around.
+      // Directory searches remain broad/list claims to avoid blocking normal
+      // repository-wide searches.
+      let access: Access = "list";
+      try {
+        if (fs.statSync(path.resolve(cwd, targetPath)).isFile()) access = "read";
+      } catch {
+        // Unknown, globbed, or not-yet-existing search roots remain list claims.
+      }
+      return [{ path: targetPath, access, confidence: "glob" }];
     }
 
     case "Bash": {

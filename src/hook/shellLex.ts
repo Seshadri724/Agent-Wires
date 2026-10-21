@@ -10,7 +10,8 @@ import type { Access, PathClaim } from "../core/types.ts";
 // *deleted*, as opposed to merely read/listed.
 const WRITE_COMMANDS = new Set(["rm", "mv", "cp", "truncate", "shred", "tee", "chmod", "chown"]);
 const DELETE_COMMANDS = new Set(["rm", "shred"]);
-const LIST_COMMANDS = new Set(["ls", "find", "grep", "rg", "stat", "file", "tree"]);
+const LIST_COMMANDS = new Set(["ls", "find", "stat", "file", "tree"]);
+const READ_COMMANDS = new Set(["grep", "rg"]);
 
 function tokenize(command: string): string[] {
   const tokens: string[] = [];
@@ -95,6 +96,7 @@ function claimsForSegment(segment: string[]): PathClaim[] {
   if (DELETE_COMMANDS.has(cmd)) access = "delete";
   else if (WRITE_COMMANDS.has(cmd)) access = "write";
   else if (LIST_COMMANDS.has(cmd)) access = "list";
+  else if (READ_COMMANDS.has(cmd)) access = "read";
 
   // Redirection targets (`> file`, `>> file`) are always writes,
   // regardless of the command being run.

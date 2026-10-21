@@ -14,10 +14,26 @@ const EMPTY_MANIFEST: Manifest = { version: 1, entries: [] };
 export function loadOrCreateKey(): Buffer {
   const p = keyPath();
   if (fs.existsSync(p)) {
-    return fs.readFileSync(p);
+    const existing = fs.readFileSync(p);
+    if (existing.length !== 32) throw new Error("Canary manifest key has an invalid length");
+    return existing;
   }
   const key = crypto.randomBytes(32);
-  fs.writeFileSync(p, key, { mode: 0o600 });
+  try {
+    const fd = fs.openSync(p, "wx", 0o600);
+    try {
+      fs.writeFileSync(fd, key);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (err) {
+    // Another hook/CLI process may have created the key first. Use the
+    // winner's key; never overwrite it with a second random key.
+    if (!fs.existsSync(p)) throw err;
+    const existing = fs.readFileSync(p);
+    if (existing.length !== 32) throw new Error("Canary manifest key has an invalid length");
+    return existing;
+  }
   try {
     fs.chmodSync(p, 0o600);
   } catch {
@@ -38,20 +54,54 @@ export function signEntry(key: Buffer, entry: Omit<ManifestEntry, "hmac">): stri
 }
 
 export function verifyEntry(key: Buffer, entry: ManifestEntry): boolean {
+  if (!entry || typeof entry.hmac !== "string" || !/^[a-f0-9]{64}$/i.test(entry.hmac)) return false;
   const expected = signEntry(key, entry);
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(entry.hmac));
 }
 
-export function loadManifest(): Manifest {
+export function loadManifest(options: { requireEntries?: boolean } = {}): Manifest {
   const p = manifestPath();
-  if (!fs.existsSync(p)) return { ...EMPTY_MANIFEST };
+  if (!fs.existsSync(p)) {
+    if (options.requireEntries) throw new Error("Canary manifest is missing");
+    return { ...EMPTY_MANIFEST };
+  }
   const raw = fs.readFileSync(p, "utf8");
-  if (raw.trim().length === 0) return { ...EMPTY_MANIFEST };
-  return JSON.parse(raw) as Manifest;
+  if (raw.trim().length === 0) {
+    if (options.requireEntries) throw new Error("Canary manifest is empty");
+    return { ...EMPTY_MANIFEST };
+  }
+  const manifest = JSON.parse(raw) as Manifest;
+  if (manifest.version !== 1 || !Array.isArray(manifest.entries)) {
+    throw new Error("Canary manifest has an invalid format");
+  }
+  if (options.requireEntries && manifest.entries.length === 0) {
+    throw new Error("Canary manifest has no registered canaries");
+  }
+  return manifest;
 }
 
 export function saveManifest(manifest: Manifest): void {
-  fs.writeFileSync(manifestPath(), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+  const destination = manifestPath();
+  const temporary = `${destination}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+  try {
+    fs.renameSync(temporary, destination);
+  } catch {
+    try {
+      fs.copyFileSync(temporary, destination);
+      fs.unlinkSync(temporary);
+    } catch (err) {
+      try {
+        fs.unlinkSync(temporary);
+      } catch {}
+      throw err;
+    }
+  }
+  try {
+    fs.chmodSync(destination, 0o600);
+  } catch {
+    // ACLs are not managed in v1 on Windows; report this limitation in docs.
+  }
 }
 
 export function addManifestEntry(
@@ -87,11 +137,7 @@ export function removeManifestEntriesForWorkspace(manifest: Manifest, workspace:
 export function buildManifestPathSet(manifest: Manifest, key: Buffer): Set<string> {
   const set = new Set<string>();
   for (const entry of manifest.entries) {
-    if (!verifyEntry(key, entry)) {
-      // Tampered entry — do not trust it as a canary, but this is itself
-      // worth surfacing (see docs/ARCHITECTURE.md §6). Callers may log this.
-      continue;
-    }
+    if (!verifyEntry(key, entry)) throw new Error(`Canary manifest entry failed verification: ${entry.path}`);
     set.add(entry.path);
   }
   return set;
@@ -101,7 +147,7 @@ export function buildManifestPathSet(manifest: Manifest, key: Buffer): Set<strin
 export function buildManifestTokenSet(manifest: Manifest, key: Buffer): Set<string> {
   const set = new Set<string>();
   for (const entry of manifest.entries) {
-    if (!verifyEntry(key, entry)) continue;
+    if (!verifyEntry(key, entry)) throw new Error(`Canary manifest entry failed verification: ${entry.path}`);
     if (entry.tokenId.length >= 16) set.add(entry.tokenId);
   }
   return set;
