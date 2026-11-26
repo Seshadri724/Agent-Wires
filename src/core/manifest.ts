@@ -63,12 +63,12 @@ export function loadManifest(options: { requireEntries?: boolean } = {}): Manife
   const p = manifestPath();
   if (!fs.existsSync(p)) {
     if (options.requireEntries) throw new Error("Canary manifest is missing");
-    return { ...EMPTY_MANIFEST };
+    return { version: 1, entries: [] };
   }
   const raw = fs.readFileSync(p, "utf8");
   if (raw.trim().length === 0) {
     if (options.requireEntries) throw new Error("Canary manifest is empty");
-    return { ...EMPTY_MANIFEST };
+    return { version: 1, entries: [] };
   }
   const manifest = JSON.parse(raw) as Manifest;
   if (manifest.version !== 1 || !Array.isArray(manifest.entries)) {

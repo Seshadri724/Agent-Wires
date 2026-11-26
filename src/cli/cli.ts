@@ -7,32 +7,38 @@ import { runEvents } from "./commands/events.ts";
 import { runScope } from "./commands/scope.ts";
 import { runResume, runKill } from "./commands/resume.ts";
 import { runTest } from "./commands/test.ts";
+import { runEvaluate } from "./commands/evaluate.ts";
 import { runExempt } from "./commands/exempt.ts";
 import { runReplay, runExport } from "./commands/replay.ts";
 import { runInstallHook, runUninstallHook } from "./commands/installHook.ts";
 import { runMcpCommand } from "./commands/mcpCommand.ts";
 import { runSimulate } from "./commands/simulate.ts";
+import { runDoctor } from "./commands/doctor.ts";
+import packageJson from "../../package.json" with { type: "json" };
 
 const HELP = `canarywatch — tripwires for AI agents
 
 Usage:
-  canarywatch init [workspace]              Seed canaries + print hook setup instructions
+  canarywatch init [workspace]              Seed canaries and install Claude Code hook
   canarywatch seed [workspace] [--density=light|standard|paranoid]
   canarywatch unseed [workspace]            Remove canaries seeded in a workspace
   canarywatch status [workspace]            Show manifest, policy, session, and log health
-  canarywatch events [N] [--pending] [--verify]
+  canarywatch doctor [workspace] [--json]   Read-only preflight check for setup and boundaries
+  canarywatch events [N] [--pending] [--verify] [--session <id>] [--json]
   canarywatch scope add <path>              Add a directory to this workspace's allowed write scope
   canarywatch scope list
   canarywatch resume <session-id>           Unlock a paused/locked session
   canarywatch kill <session-id>             Lock a session (deny all further tool calls)
   canarywatch exempt <path>                 Grant temporary access exemption for a path
-  canarywatch replay <session-id>           Replay session timeline and decisions
-  canarywatch export [--session=ID] [--format=json|ocsf] Export event log records
-  canarywatch install-hook [--dry-run]     Automatically install Claude Code hook integration
+  canarywatch replay <session-id>           Replay redacted session timeline and decisions
+  canarywatch export [--session <id>] [--format json|ocsf] [--out <file>] Export redacted evidence
+  canarywatch install-hook [--dry-run]      Automatically install Claude Code hook integration
   canarywatch uninstall-hook                Remove Claude Code hook integration
   canarywatch mcp-proxy <cmd> [args...]     Launch an MCP stdio proxy gateway
   canarywatch simulate <tool> [input]       Dry-run policy evaluation on mock tool input
   canarywatch test                          Self-test: verify the tripwire actually fires
+  canarywatch evaluate [--json]             Run boundary evaluation scenarios (blocked/allowed/unobserved)
+  canarywatch --version                     Print CLI version
 `;
 
 async function main(): Promise<void> {
@@ -50,6 +56,9 @@ async function main(): Promise<void> {
       break;
     case "status":
       runStatus(rest);
+      break;
+    case "doctor":
+      runDoctor(rest);
       break;
     case "events":
       runEvents(rest);
@@ -86,6 +95,14 @@ async function main(): Promise<void> {
       break;
     case "test":
       await runTest();
+      break;
+    case "evaluate":
+      await runEvaluate(rest);
+      break;
+    case "version":
+    case "--version":
+    case "-v":
+      console.log(packageJson.version);
       break;
     case "help":
     case "--help":

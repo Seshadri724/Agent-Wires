@@ -49,3 +49,31 @@ test("hook fails closed for malformed input, missing manifests, and targeted Gre
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test("hook fails closed for an unknown event and corrupt policy", () => {
+  const hook = resolveHookScript();
+  assert.ok(hook);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cw-hook-invalid-home-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "cw-hook-invalid-workspace-"));
+  const previousHome = process.env.CANARYWATCH_HOME;
+  process.env.CANARYWATCH_HOME = home;
+  try {
+    seed(workspace, "light");
+    const input = { session_id: "invalid-input", cwd: workspace, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: "ordinary.txt" } };
+    const unknownEvent = invokeHook(hook!, home, JSON.stringify(input));
+    assert.equal(JSON.parse(unknownEvent.stdout).hookSpecificOutput.permissionDecision, "deny");
+
+    fs.writeFileSync(path.join(home, "policy.json"), "{broken");
+    const corruptPolicy = invokeHook(hook!, home, JSON.stringify({ ...input, hook_event_name: "PreToolUse", session_id: "corrupt-policy" }));
+    assert.equal(JSON.parse(corruptPolicy.stdout).hookSpecificOutput.permissionDecision, "deny");
+
+    fs.writeFileSync(path.join(home, "policy.json"), JSON.stringify({ scopeEnforced: "false", massMod: { threshold: 0 } }));
+    const invalidPolicy = invokeHook(hook!, home, JSON.stringify({ ...input, hook_event_name: "PreToolUse", session_id: "invalid-policy" }));
+    assert.equal(JSON.parse(invalidPolicy.stdout).hookSpecificOutput.permissionDecision, "deny");
+  } finally {
+    if (previousHome === undefined) delete process.env.CANARYWATCH_HOME;
+    else process.env.CANARYWATCH_HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

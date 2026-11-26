@@ -89,8 +89,15 @@ export function extractBashPathClaims(command: string): PathClaim[] {
 
 function claimsForSegment(segment: string[]): PathClaim[] {
   const [cmd, ...args] = segment;
-  const pathArgs = args.filter(looksLikePath);
-  if (pathArgs.length === 0) return [];
+  // shortcut: recognizes curl @-uploads only; extend when another upload syntax is supported.
+  const isCurl = /(?:^|[\\/])curl(?:\.exe)?$/i.test(cmd);
+  const uploadPaths = isCurl ? args.flatMap((arg) => {
+    const match = /(?:^|=)@(.+)/.exec(arg);
+    const uploadedPath = match?.[1].split(";")[0];
+    return uploadedPath ? [uploadedPath] : [];
+  }) : [];
+  const pathArgs = args.filter((arg) => !(isCurl && /(?:^|=)@/.test(arg)) && looksLikePath(arg));
+  if (pathArgs.length === 0 && uploadPaths.length === 0) return [];
 
   let access: Access = "read";
   if (DELETE_COMMANDS.has(cmd)) access = "delete";
@@ -113,6 +120,7 @@ function claimsForSegment(segment: string[]): PathClaim[] {
     if (redirectTargets.has(p)) continue;
     claims.push({ path: p, access, confidence: "lexed" });
   }
+  for (const p of uploadPaths) claims.push({ path: p, access: "read", confidence: "lexed" });
 
   return claims;
 }

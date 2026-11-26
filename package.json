@@ -7,7 +7,8 @@
   "files": [
     "plugin/claude-code/bin",
     "plugin/claude-code/hooks",
-    "plugin/claude-code/.claude-plugin"
+    "plugin/claude-code/.claude-plugin",
+    "schemas"
   ],
   "repository": {
     "type": "git",
@@ -30,6 +31,9 @@
     "selftest": "node src/cli/cli.ts test",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:beta": "node scripts/build-plugin.mjs && node scripts/build-beta.mjs",
+    "check:evaluation-artifacts": "node scripts/check-evaluation-artifacts.mjs",
+    "smoke:beta-install": "node scripts/smoke-beta-install.mjs",
+    "smoke:package-install": "node scripts/smoke-package-install.mjs",
     "bench": "node scripts/bench-hook-latency.mjs"
   },
   "devDependencies": {

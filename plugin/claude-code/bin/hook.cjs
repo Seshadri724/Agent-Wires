@@ -109,16 +109,54 @@ var DEFAULT_POLICY = {
 };
 
 // src/core/config.ts
-function loadPolicy() {
-  const p = policyPath();
-  if (!import_node_fs2.default.existsSync(p)) return DEFAULT_POLICY;
-  const raw = JSON.parse(import_node_fs2.default.readFileSync(p, "utf8"));
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+function validatePolicyConfig(value) {
+  if (!isRecord(value)) return "policy must be a JSON object";
+  if (value.sensitivePaths !== void 0 && !isStringArray(value.sensitivePaths)) return "sensitivePaths must be an array of strings";
+  if (value.scopeEnforced !== void 0 && typeof value.scopeEnforced !== "boolean") return "scopeEnforced must be a boolean";
+  if (value.dangerousCommands !== void 0 && !isStringArray(value.dangerousCommands)) return "dangerousCommands must be an array of strings";
+  if (value.massMod !== void 0) {
+    if (!isRecord(value.massMod)) return "massMod must be an object";
+    const { windowMs, threshold, allowlistDirs } = value.massMod;
+    if (windowMs !== void 0 && (typeof windowMs !== "number" || !Number.isFinite(windowMs) || windowMs <= 0)) return "massMod.windowMs must be a positive number";
+    if (threshold !== void 0 && (typeof threshold !== "number" || !Number.isInteger(threshold) || threshold <= 0)) return "massMod.threshold must be a positive integer";
+    if (allowlistDirs !== void 0 && !isStringArray(allowlistDirs)) return "massMod.allowlistDirs must be an array of strings";
+  }
+  if (value.d3 !== void 0) {
+    if (!isRecord(value.d3)) return "d3 must be an object";
+    const threshold = value.d3.warnBeforePause;
+    if (threshold !== void 0 && (typeof threshold !== "number" || !Number.isInteger(threshold) || threshold < 0)) {
+      return "d3.warnBeforePause must be a non-negative integer";
+    }
+  }
+  if (value.mcp !== void 0) {
+    if (!isRecord(value.mcp)) return "mcp must be an object";
+    for (const field of ["allowedServers", "blockedServers", "allowedTools", "blockedTools"]) {
+      if (value.mcp[field] !== void 0 && !isStringArray(value.mcp[field])) return `mcp.${field} must be an array of strings`;
+    }
+  }
+  return void 0;
+}
+function parsePolicyConfig(value) {
+  const problem = validatePolicyConfig(value);
+  if (problem) throw new Error(`Invalid policy config: ${problem}`);
+  const raw = value;
   return {
     ...DEFAULT_POLICY,
     ...raw,
-    massMod: { ...DEFAULT_POLICY.massMod, ...raw.massMod ?? {} },
-    d3: { ...DEFAULT_POLICY.d3, ...raw.d3 ?? {} }
+    massMod: { ...DEFAULT_POLICY.massMod, ...raw.massMod },
+    d3: { ...DEFAULT_POLICY.d3, ...raw.d3 }
   };
+}
+function loadPolicy() {
+  const p = policyPath();
+  if (!import_node_fs2.default.existsSync(p)) return DEFAULT_POLICY;
+  return parsePolicyConfig(JSON.parse(import_node_fs2.default.readFileSync(p, "utf8")));
 }
 
 // src/core/manifest.ts
@@ -204,7 +242,6 @@ function isSubpathOrEqual(parentPath, childPath) {
 }
 
 // src/core/manifest.ts
-var EMPTY_MANIFEST = { version: 1, entries: [] };
 function loadOrCreateKey() {
   const p = keyPath();
   if (import_node_fs4.default.existsSync(p)) {
@@ -245,12 +282,12 @@ function loadManifest(options = {}) {
   const p = manifestPath();
   if (!import_node_fs4.default.existsSync(p)) {
     if (options.requireEntries) throw new Error("Canary manifest is missing");
-    return { ...EMPTY_MANIFEST };
+    return { version: 1, entries: [] };
   }
   const raw = import_node_fs4.default.readFileSync(p, "utf8");
   if (raw.trim().length === 0) {
     if (options.requireEntries) throw new Error("Canary manifest is empty");
-    return { ...EMPTY_MANIFEST };
+    return { version: 1, entries: [] };
   }
   const manifest = JSON.parse(raw);
   if (manifest.version !== 1 || !Array.isArray(manifest.entries)) {
@@ -664,6 +701,54 @@ function getWorkspaceScope(workspace) {
 var import_node_fs7 = __toESM(require("node:fs"), 1);
 var import_node_path4 = __toESM(require("node:path"), 1);
 var import_node_crypto2 = __toESM(require("node:crypto"), 1);
+
+// package.json
+var package_default = {
+  name: "canarywatch",
+  version: "0.1.0",
+  description: "Tripwires for AI agents \u2014 deterministic runtime guardrails for autonomous agent filesystem access.",
+  type: "module",
+  license: "MIT",
+  files: [
+    "plugin/claude-code/bin",
+    "plugin/claude-code/hooks",
+    "plugin/claude-code/.claude-plugin",
+    "schemas"
+  ],
+  repository: {
+    type: "git",
+    url: "https://github.com/Seshadri724/Agent-Wires.git"
+  },
+  bugs: "https://github.com/Seshadri724/Agent-Wires/issues",
+  bin: {
+    canarywatch: "plugin/claude-code/bin/canarywatch.mjs"
+  },
+  engines: {
+    node: ">=22.18.0"
+  },
+  scripts: {
+    dev: "node src/cli/cli.ts",
+    build: "npm run build:plugin",
+    prepare: "npm run build:plugin",
+    cli: "node src/cli/cli.ts",
+    test: 'node --test "test/*.test.ts"',
+    typecheck: "tsc --noEmit",
+    selftest: "node src/cli/cli.ts test",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "build:beta": "node scripts/build-plugin.mjs && node scripts/build-beta.mjs",
+    "check:evaluation-artifacts": "node scripts/check-evaluation-artifacts.mjs",
+    "smoke:beta-install": "node scripts/smoke-beta-install.mjs",
+    "smoke:package-install": "node scripts/smoke-package-install.mjs",
+    bench: "node scripts/bench-hook-latency.mjs"
+  },
+  devDependencies: {
+    "@types/node": "^26.1.1",
+    esbuild: "^0.28.1",
+    typescript: "^5.6.0"
+  }
+};
+
+// src/core/eventlog.ts
 var GENESIS_HASH = "0".repeat(64);
 function canonicalJson(obj) {
   const sort = (v) => {
@@ -686,7 +771,7 @@ function lastEntry() {
 }
 function redactSecrets(data) {
   if (typeof data === "string") {
-    return data.replace(/(sk-[a-zA-Z0-9]{20,})/g, "[REDACTED_API_KEY]").replace(/(ghp_[a-zA-Z0-9]{36})/g, "[REDACTED_GITHUB_TOKEN]").replace(/(AKIA[0-9A-Z]{16})/g, "[REDACTED_AWS_KEY]").replace(/(password|secret|bearer)\s*=\s*['"]?[^\s'"]+['"]?/gi, "$1=[REDACTED]");
+    return data.replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g, "[REDACTED_PRIVATE_KEY]").replace(/(sk-[a-zA-Z0-9_-]{20,})/g, "[REDACTED_API_KEY]").replace(/((?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{30,}|github_pat_[a-zA-Z0-9_]{20,})/g, "[REDACTED_GITHUB_TOKEN]").replace(/(AKIA[0-9A-Z]{16})/g, "[REDACTED_AWS_KEY]").replace(/(AIza[0-9A-Za-z_-]{35})/g, "[REDACTED_API_KEY]").replace(/(xox[baprs]-[0-9A-Za-z-]{10,})/g, "[REDACTED_SLACK_TOKEN]").replace(/(glpat-[0-9A-Za-z_-]{20,})/g, "[REDACTED_GITLAB_TOKEN]").replace(/(npm_[0-9A-Za-z]{20,})/g, "[REDACTED_NPM_TOKEN]").replace(/\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]").replace(/(https?:\/\/)([^:@\s/]+):([^@\s/]+)@/gi, "$1[REDACTED_USER]:[REDACTED_PASS]@").replace(/(Authorization\s*:\s*Bearer\s+)[^\s'"]+/gi, "$1[REDACTED]").replace(/\b(password|secret|bearer|token|api_key|apikey|aws_secret_access_key|anthropic_api_key|openai_api_key)\s*([:=])\s*['"]?[^\s'"&;]+['"]?/gi, "$1$2[REDACTED]");
   }
   if (Array.isArray(data)) {
     return data.map(redactSecrets);
@@ -749,32 +834,41 @@ function appendEvent(decision) {
     release();
   }
 }
-function readEvents() {
-  const p = eventLogPath();
+function readEventsAt(stateDir) {
+  const p = import_node_path4.default.join(stateDir, "events.jsonl");
   if (!import_node_fs7.default.existsSync(p)) return [];
   return import_node_fs7.default.readFileSync(p, "utf8").split("\n").filter((l) => l.trim().length > 0).map((l) => JSON.parse(l));
 }
-function verifyChain() {
+function verifyChainAt(stateDir) {
+  const logFile = import_node_path4.default.join(stateDir, "events.jsonl");
+  const ap = import_node_path4.default.join(stateDir, "head.anchor.json");
+  const kp = import_node_path4.default.join(stateDir, "key");
+  if (!import_node_fs7.default.existsSync(logFile) && !import_node_fs7.default.existsSync(ap)) {
+    return { valid: true, eventCount: 0, empty: true };
+  }
   let entries;
   try {
-    entries = readEvents();
+    entries = readEventsAt(stateDir);
   } catch (err) {
-    return { valid: false, reason: `Event log is corrupt or unreadable: ${err}` };
+    return { valid: false, eventCount: 0, empty: false, reason: `Event log is corrupt or unreadable: ${err}` };
   }
   let expectedPrev = GENESIS_HASH;
   let maxSeqInLog = -1;
   let lastHashInLog = "";
   for (const entry of entries) {
-    if (entry.prevHash !== expectedPrev) return { valid: false, brokenAtSeq: entry.seq, reason: "Hash chain link mismatch" };
+    if (entry.prevHash !== expectedPrev) {
+      return { valid: false, brokenAtSeq: entry.seq, eventCount: entries.length, empty: false, reason: "Hash chain link mismatch" };
+    }
     const recomputed = import_node_crypto2.default.createHash("sha256").update(entry.prevHash + canonicalJson({ seq: entry.seq, decision: entry.decision })).digest("hex");
-    if (recomputed !== entry.hash) return { valid: false, brokenAtSeq: entry.seq, reason: "Content hash tampered" };
+    if (recomputed !== entry.hash) {
+      return { valid: false, brokenAtSeq: entry.seq, eventCount: entries.length, empty: false, reason: "Content hash tampered" };
+    }
     expectedPrev = entry.hash;
     maxSeqInLog = entry.seq;
     lastHashInLog = entry.hash;
   }
-  const ap = headAnchorPath();
   if (entries.length > 0 && !import_node_fs7.default.existsSync(ap)) {
-    return { valid: false, reason: "Head anchor is missing for a non-empty event log" };
+    return { valid: false, eventCount: entries.length, empty: false, reason: "Head anchor is missing for a non-empty event log" };
   }
   if (import_node_fs7.default.existsSync(ap)) {
     let anchor;
@@ -782,26 +876,42 @@ function verifyChain() {
       const rawAnchor = import_node_fs7.default.readFileSync(ap, "utf8");
       anchor = JSON.parse(rawAnchor);
     } catch (err) {
-      return { valid: false, reason: `Head anchor file corrupt or unreadable: ${err}` };
+      return { valid: false, eventCount: entries.length, empty: false, reason: `Head anchor file corrupt or unreadable: ${err}` };
     }
     try {
-      const key = loadOrCreateKey();
+      if (!import_node_fs7.default.existsSync(kp)) {
+        return { valid: false, brokenAtSeq: anchor.maxSeq, eventCount: entries.length, empty: false, reason: "Signing key missing for head anchor verification" };
+      }
+      const key = import_node_fs7.default.readFileSync(kp);
+      if (key.length !== 32) {
+        return { valid: false, brokenAtSeq: anchor.maxSeq, eventCount: entries.length, empty: false, reason: "Signing key has an invalid length" };
+      }
       const expectedHmac = signAnchor(key, anchor.maxSeq, anchor.headHash);
       if (!import_node_crypto2.default.timingSafeEqual(Buffer.from(expectedHmac), Buffer.from(anchor.hmac))) {
-        return { valid: false, brokenAtSeq: anchor.maxSeq, reason: "Head anchor signature verification failed (tampered anchor)" };
+        return { valid: false, brokenAtSeq: anchor.maxSeq, eventCount: entries.length, empty: false, reason: "Head anchor signature verification failed (tampered anchor)" };
       }
     } catch {
-      return { valid: false, brokenAtSeq: anchor.maxSeq, reason: "Head anchor signature verification error" };
+      return { valid: false, brokenAtSeq: anchor.maxSeq, eventCount: entries.length, empty: false, reason: "Head anchor signature verification error" };
     }
     if (maxSeqInLog < anchor.maxSeq || anchor.maxSeq >= 0 && lastHashInLog !== anchor.headHash) {
       return {
         valid: false,
         brokenAtSeq: anchor.maxSeq,
+        eventCount: entries.length,
+        empty: false,
         reason: `Tail truncation detected: logged seq ${maxSeqInLog} < anchored seq ${anchor.maxSeq}`
       };
     }
   }
-  return { valid: true };
+  return { valid: true, eventCount: entries.length, empty: entries.length === 0 };
+}
+function verifyChain() {
+  const result = verifyChainAt(canarywatchHome());
+  return {
+    valid: result.valid,
+    ...result.brokenAtSeq !== void 0 ? { brokenAtSeq: result.brokenAtSeq } : {},
+    ...result.reason !== void 0 ? { reason: result.reason } : {}
+  };
 }
 
 // src/core/notifier.ts
@@ -926,8 +1036,14 @@ function extractBashPathClaims(command) {
 }
 function claimsForSegment(segment) {
   const [cmd, ...args] = segment;
-  const pathArgs = args.filter(looksLikePath);
-  if (pathArgs.length === 0) return [];
+  const isCurl = /(?:^|[\\/])curl(?:\.exe)?$/i.test(cmd);
+  const uploadPaths = isCurl ? args.flatMap((arg) => {
+    const match = /(?:^|=)@(.+)/.exec(arg);
+    const uploadedPath = match?.[1].split(";")[0];
+    return uploadedPath ? [uploadedPath] : [];
+  }) : [];
+  const pathArgs = args.filter((arg) => !(isCurl && /(?:^|=)@/.test(arg)) && looksLikePath(arg));
+  if (pathArgs.length === 0 && uploadPaths.length === 0) return [];
   let access = "read";
   if (DELETE_COMMANDS.has(cmd)) access = "delete";
   else if (WRITE_COMMANDS.has(cmd)) access = "write";
@@ -945,6 +1061,7 @@ function claimsForSegment(segment) {
     if (redirectTargets.has(p)) continue;
     claims.push({ path: p, access, confidence: "lexed" });
   }
+  for (const p of uploadPaths) claims.push({ path: p, access: "read", confidence: "lexed" });
   return claims;
 }
 
@@ -1044,6 +1161,11 @@ function emit(permissionDecision, reason) {
   );
 }
 async function main() {
+  if (process.argv.includes("--version")) {
+    process.stdout.write(`${package_default.version}
+`);
+    return;
+  }
   let raw;
   try {
     raw = await readStdin();

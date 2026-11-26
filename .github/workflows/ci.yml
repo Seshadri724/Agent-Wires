@@ -21,6 +21,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run selftest
+      - run: npm run build:beta
+      - run: npm run check:evaluation-artifacts
+      - run: npm run smoke:beta-install
+      - run: npm run smoke:package-install
       # The plugin bundle is committed, but Claude Code has no install-time
       # build step — so a stale bin/hook.cjs means testers silently run
       # different logic than this repo shows. Rebuild and fail on any drift.

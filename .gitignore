@@ -1,14 +1,77 @@
+# Dependencies & Package Managers
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Build outputs
 dist/
+build/
+*.tsbuildinfo
+*.tgz
+
 # Built by `npm run build:plugin` (the npm bin); hook.cjs next to it IS committed.
 /plugin/claude-code/bin/canarywatch.mjs
-*.tsbuildinfo
-.DS_Store
-Thumbs.db
 
 # Local canarywatch state if CANARYWATCH_HOME ever points inside the repo
 /.canarywatch/
 
+# Internal design, roadmap, and validation docs kept out of repo
 docs/
-# Local Claude Code preview config
+
+# AI tool configs & previews
 /.claude/
+
+# Editor & IDE files
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+*~
+
+# Environment & local secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# Temporary, backup & scratch files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.sw?
+
+# OS metadata
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+.fuse_hidden*
+.directory
+.Trash-*
+

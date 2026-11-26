@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Seshadri724/Agent-Wires/master/schemas/evaluation-v1.schema.json",
+  "title": "Canarywatch evaluation report v1",
+  "type": "object",
+  "required": [
+    "$schema",
+    "$id",
+    "schemaVersion",
+    "canarywatchVersion",
+    "timestamp",
+    "overallPass",
+    "contractNotice",
+    "summary",
+    "scenarios"
+  ],
+  "properties": {
+    "$schema": { "const": "https://json-schema.org/draft/2020-12/schema" },
+    "$id": { "const": "https://raw.githubusercontent.com/Seshadri724/Agent-Wires/master/schemas/evaluation-v1.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "canarywatchVersion": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "overallPass": { "type": "boolean" },
+    "contractNotice": { "type": "string", "minLength": 1 },
+    "summary": {
+      "type": "object",
+      "required": ["total", "passed", "failed", "blocked", "allowed", "unobserved"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "allowed": { "type": "integer", "minimum": 0 },
+        "unobserved": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "category",
+          "boundary",
+          "intendedBehavior",
+          "expectedDecision",
+          "actualDecision",
+          "pass",
+          "coverageLimit"
+        ],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "category": { "enum": ["blocked", "allowed", "unobserved"] },
+          "boundary": { "enum": ["hook", "outside_supported_boundary"] },
+          "intendedBehavior": { "type": "string", "minLength": 1 },
+          "expectedDecision": { "enum": ["allow", "deny"] },
+          "actualDecision": { "enum": ["allow", "deny"] },
+          "detector": { "type": "string" },
+          "expectedDetector": { "type": "string" },
+          "reason": { "type": "string" },
+          "pass": { "type": "boolean" },
+          "coverageLimit": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "error": { "type": "string" }
+  },
+  "additionalProperties": false
+}

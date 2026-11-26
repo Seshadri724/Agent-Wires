@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { runInstallHook, runUninstallHook, resolveHookScript } from "../src/cli/commands/installHook.ts";
+import { CANARYWATCH_HOOK_MARKER, runInstallHook, runUninstallHook, resolveHookScript } from "../src/cli/commands/installHook.ts";
 
 // A registered hook path that doesn't exist means canarywatch looks installed
 // while silently protecting nothing — the worst failure mode this tool has.
@@ -35,6 +35,7 @@ test("install-hook and uninstall-hook integration", () => {
   fs.writeFileSync(claudeConfigPath, JSON.stringify(existingConfig, null, 2));
 
   // Run install-hook
+  runInstallHook([]);
   runInstallHook([]);
 
   assert.ok(fs.existsSync(claudeConfigPath));
@@ -88,6 +89,75 @@ test("install-hook preserves malformed settings and reports failure", () => {
     runInstallHook([]);
     assert.equal(fs.readFileSync(configPath, "utf8"), malformed);
     assert.equal(process.exitCode, 1);
+  } finally {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (origUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUserProfile;
+    process.exitCode = previousExitCode;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("install-hook upgrades stale managed entries and preserves unrelated hooks", () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-test-upgrade-"));
+  const origHome = process.env.HOME;
+  const origUserProfile = process.env.USERPROFILE;
+  const previousExitCode = process.exitCode;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
+  const configPath = path.join(tmpHome, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify({
+    theme: "dark",
+    hooks: { PreToolUse: [
+      { matcher: "Bash", hooks: [{ type: "command", command: "node unrelated.js" }] },
+      { id: "canarywatch-managed-hook-v1", hooks: [{ type: "command", command: "node old-hook.cjs" }] },
+      { owner: "canarywatch-managed-hook-v1", hooks: [{ type: "command", command: "node duplicate-old-hook.cjs" }] },
+    ] },
+  }));
+  process.exitCode = 0;
+  try {
+    runInstallHook([]);
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(config.theme, "dark");
+    assert.equal(config.hooks.PreToolUse.length, 2);
+    assert.equal(config.hooks.PreToolUse[0].hooks[0].command, "node unrelated.js");
+    const managed = config.hooks.PreToolUse[1];
+    assert.equal(managed.id, "canarywatch-managed-hook-v1");
+    assert.ok(managed.hooks[0].command.includes("hook.cjs") || managed.hooks[0].command.includes("hook.ts"));
+    assert.equal(process.exitCode, 0);
+  } finally {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (origUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUserProfile;
+    process.exitCode = previousExitCode;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("install-hook restores settings from a backup left by an interrupted Windows replacement", () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-test-recovery-"));
+  const origHome = process.env.HOME;
+  const origUserProfile = process.env.USERPROFILE;
+  const previousExitCode = process.exitCode;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
+  const configPath = path.join(tmpHome, ".claude", "settings.json");
+  const backup = `${configPath}.${CANARYWATCH_HOOK_MARKER}.bak`;
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, '{"partial":');
+  fs.writeFileSync(backup, JSON.stringify({ theme: "dark", hooks: { PreToolUse: [{ id: "user-hook" }] } }));
+  process.exitCode = 0;
+  try {
+    runInstallHook([]);
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(config.theme, "dark");
+    assert.ok(config.hooks.PreToolUse.some((hook: any) => hook.id === "user-hook"));
+    assert.ok(config.hooks.PreToolUse.some((hook: any) => hook.id === CANARYWATCH_HOOK_MARKER));
+    assert.equal(fs.existsSync(backup), false);
+    assert.equal(process.exitCode, 0);
   } finally {
     if (origHome === undefined) delete process.env.HOME;
     else process.env.HOME = origHome;

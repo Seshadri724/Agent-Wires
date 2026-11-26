@@ -20,6 +20,7 @@ import { appendEvent } from "../core/eventlog.ts";
 import { sendDesktopNotification } from "../core/notifier.ts";
 import { extractPathClaims } from "./pathClaims.ts";
 import type { Decision, ToolCallEvent } from "../core/types.ts";
+import packageJson from "../../package.json" with { type: "json" };
 
 interface ClaudeHookInput {
   session_id: string;
@@ -78,6 +79,11 @@ function emit(permissionDecision: "allow" | "deny" | "ask", reason: string): voi
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--version")) {
+    process.stdout.write(`${packageJson.version}\n`);
+    return;
+  }
+
   let raw: string;
   try {
     raw = await readStdin();

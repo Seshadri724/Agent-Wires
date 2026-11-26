@@ -41,6 +41,39 @@ describe("canonicalize", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  test("relative paths with spaces and parent traversal resolve to the same file", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cw-canon-space-"));
+    const workspace = path.join(dir, "workspace with spaces");
+    fs.mkdirSync(workspace);
+    fs.writeFileSync(path.join(workspace, "secret file.txt"), "x");
+    try {
+      assert.equal(
+        canonicalize("../secret file.txt", path.join(workspace, "nested")),
+        canonicalize(path.join(workspace, "secret file.txt"))
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("existing symlink and target canonicalize identically", (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cw-canon-link-"));
+    const target = path.join(dir, "target.txt");
+    const alias = path.join(dir, "alias.txt");
+    fs.writeFileSync(target, "x");
+    try {
+      try {
+        fs.symlinkSync(target, alias);
+      } catch (error) {
+        t.skip(`symlinks unavailable in this environment: ${error}`);
+        return;
+      }
+      assert.equal(canonicalize(alias), canonicalize(target));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("trailing separator is stripped", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cw-canon-"));
     const withSlash = canonicalize(dir + path.sep);

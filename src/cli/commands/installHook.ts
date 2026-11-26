@@ -23,6 +23,45 @@ function getHookCommand(scriptPath: string): string {
   return `node "${scriptPath}"`;
 }
 
+function backupPath(configPath: string): string {
+  return `${configPath}.${CANARYWATCH_HOOK_MARKER}.bak`;
+}
+
+function recoverConfigBackup(configPath: string): void {
+  const backup = backupPath(configPath);
+  if (!fs.existsSync(backup)) return;
+  fs.copyFileSync(backup, configPath);
+  fs.unlinkSync(backup);
+}
+
+function writeConfig(configPath: string, config: Record<string, any>): void {
+  const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  const backup = backupPath(configPath);
+  try {
+    recoverConfigBackup(configPath);
+    fs.writeFileSync(tempPath, JSON.stringify(config, null, 2), { flag: "wx" });
+    try {
+      fs.renameSync(tempPath, configPath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (process.platform !== "win32" || (code !== "EPERM" && code !== "EEXIST")) throw error;
+      // shortcut: constrained Windows filesystems need overwrite-copy; a sidecar backup allows recovery after interruption.
+      const hadOriginal = fs.existsSync(configPath);
+      if (hadOriginal) fs.copyFileSync(configPath, backup, fs.constants.COPYFILE_EXCL);
+      try {
+        fs.copyFileSync(tempPath, configPath);
+      } catch (copyError) {
+        if (hadOriginal) fs.copyFileSync(backup, configPath);
+        else if (fs.existsSync(configPath)) fs.unlinkSync(configPath);
+        throw copyError;
+      }
+      if (hadOriginal) fs.unlinkSync(backup);
+    }
+  } finally {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  }
+}
+
 export function isCanarywatchHook(hookObj: any): boolean {
   if (!hookObj) return false;
   if (hookObj.id === CANARYWATCH_HOOK_MARKER || hookObj.owner === CANARYWATCH_HOOK_MARKER) return true;
@@ -67,6 +106,14 @@ export function runInstallHook(args: string[]): boolean {
   const claudeConfigPath = getClaudeConfigPath();
   let config: Record<string, any> = {};
 
+  try {
+    recoverConfigBackup(claudeConfigPath);
+  } catch (err) {
+    console.error(`canarywatch install-hook: could not recover the previous settings file: ${err}`);
+    process.exitCode = 1;
+    return false;
+  }
+
   if (fs.existsSync(claudeConfigPath)) {
     try {
       config = JSON.parse(fs.readFileSync(claudeConfigPath, "utf8"));
@@ -109,24 +156,36 @@ export function runInstallHook(args: string[]): boolean {
     ],
   };
 
-  const hasHook = preHooks.some(isCanarywatchHook);
-
-  if (hasHook) {
-    console.log(`  Status: canarywatch hook is already registered in ${claudeConfigPath}`);
-    return !dryRun;
-  }
-
-  preHooks.push(newHookEntry);
-  hooks.PreToolUse = preHooks;
+  const managedIndex = preHooks.findIndex(isCanarywatchHook);
+  const updatedPreHooks = preHooks.filter((hook) => !isCanarywatchHook(hook));
+  if (managedIndex >= 0) updatedPreHooks.splice(Math.min(managedIndex, updatedPreHooks.length), 0, newHookEntry);
+  else updatedPreHooks.push(newHookEntry);
+  hooks.PreToolUse = updatedPreHooks;
   config.hooks = hooks;
+
+  // Replacing the managed entry makes install-hook an actual upgrade path;
+  // previously an old hook path was considered installed forever.
+  const unchanged = preHooks.length === updatedPreHooks.length && managedIndex >= 0 &&
+    JSON.stringify(preHooks[managedIndex]) === JSON.stringify(newHookEntry);
+  if (unchanged) {
+    console.log(`  Status: canarywatch hook is already current in ${claudeConfigPath}`);
+    return true;
+  }
 
   if (dryRun) {
     console.log(`  [Dry Run] Would write updated config to ${claudeConfigPath}:`);
     console.log(JSON.stringify(config, null, 2));
   } else {
-    fs.mkdirSync(path.dirname(claudeConfigPath), { recursive: true });
-    fs.writeFileSync(claudeConfigPath, JSON.stringify(config, null, 2));
-    console.log(`  Successfully registered canarywatch hook in ${claudeConfigPath}`);
+    try {
+      fs.mkdirSync(path.dirname(claudeConfigPath), { recursive: true });
+      writeConfig(claudeConfigPath, config);
+      console.log(`  Successfully registered canarywatch hook in ${claudeConfigPath}`);
+    } catch (err) {
+      console.error(`canarywatch install-hook: could not safely update ${claudeConfigPath}: ${err}`);
+      console.error("  The original settings file was left in place; check permissions and retry.");
+      process.exitCode = 1;
+      return false;
+    }
   }
   return !dryRun;
 }
@@ -134,6 +193,13 @@ export function runInstallHook(args: string[]): boolean {
 export function runUninstallHook(): void {
   let removedTotal = 0;
   for (const configPath of [getClaudeConfigPath(), getLegacyConfigPath()]) {
+    try {
+      recoverConfigBackup(configPath);
+    } catch (err) {
+      console.error(`Failed to recover settings before uninstall from ${configPath}: ${err}`);
+      process.exitCode = 1;
+      continue;
+    }
     if (!fs.existsSync(configPath)) continue;
     try {
       const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
@@ -148,11 +214,12 @@ export function runUninstallHook(): void {
       }
       if (removed === 0) continue;
       if (Object.keys(config.hooks).length === 0) delete config.hooks;
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      writeConfig(configPath, config);
       console.log(`Removed ${removed} canarywatch hook entry(ies) from ${configPath}`);
       removedTotal += removed;
     } catch (err) {
       console.error(`Failed to uninstall hook from ${configPath}: ${err}`);
+      process.exitCode = 1;
     }
   }
   if (removedTotal === 0) console.log("No canarywatch hooks were registered.");
