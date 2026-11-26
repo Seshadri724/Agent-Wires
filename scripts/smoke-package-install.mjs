@@ -6,7 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-package-smoke-"));
+// Canonicalize tempRoot so macOS /var -> /private/var matches realpath-resolved paths.
+const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-package-smoke-")));
 const packDir = path.join(tempRoot, "pack");
 const consumer = path.join(tempRoot, "consumer");
 const userHome = path.join(tempRoot, "user-home");

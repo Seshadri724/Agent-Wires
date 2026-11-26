@@ -9,7 +9,8 @@ const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const builtBeta = path.join(repoRoot, "dist", "canarywatch-beta");
 assert.ok(fs.existsSync(builtBeta), "Run npm run build:beta before the beta install smoke test");
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-beta-smoke-"));
+// Canonicalize tempRoot so macOS /var -> /private/var matches import.meta.url in the CLI.
+const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "canarywatch-beta-smoke-")));
 const packageRoot = path.join(tempRoot, "extracted-beta");
 const userHome = path.join(tempRoot, "user-home");
 const stateHome = path.join(tempRoot, "canarywatch-state");
