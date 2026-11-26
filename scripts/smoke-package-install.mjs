@@ -31,9 +31,19 @@ function runCli(cli, args) {
   return result.stdout;
 }
 
+function parsePackJson(stdout) {
+  // npm 10 still runs `prepare` during `npm pack --ignore-scripts`, interleaving
+  // build output before the JSON array on stdout; npm 11 omits it.
+  const match = /(?:^|\r?\n)\[\s*\r?\n/.exec(stdout);
+  const jsonStart = match ? match.index + (match[0].startsWith("\n") || match[0].startsWith("\r") ? match[0].indexOf("[") : 0) : stdout.indexOf("[");
+  assert.notEqual(jsonStart, -1, `Expected JSON array from npm pack --json, got:\n${stdout}`);
+  return JSON.parse(stdout.slice(jsonStart));
+}
+
 try {
   fs.mkdirSync(packDir, { recursive: true });
-  const packed = JSON.parse(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", packDir]));
+  fs.mkdirSync(consumer, { recursive: true });
+  const packed = parsePackJson(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", packDir]));
   assert.equal(packed.length, 1);
   assert.ok(packed[0].files.some((file) => file.path === "schemas/evaluation-v1.schema.json"), "evaluation schema must ship in npm package");
   const tarball = path.join(packDir, packed[0].filename);
